@@ -1,0 +1,17 @@
+{
+  "name": "Check-List CD — Meu Prata",
+  "short_name": "Check-List CD",
+  "description": "Check-lists operacionais do Centro de Distribuição, com registro offline.",
+  "lang": "pt-BR",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0b2545",
+  "theme_color": "#0b2545",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0b2545">
+  <title>Check-List CD</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon-192.png">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <div id="faixa-conexao" class="faixa-conexao oculto">Sem conexão — os registros ficam salvos no aparelho</div>
+
+  <!-- ===================== LOGIN ===================== -->
+  <section id="tela-login" class="tela ativa">
+    <div class="login-caixa">
+      <div class="logo">CD</div>
+      <h1>Check-List CD</h1>
+      <p class="subtitulo">Grupo Meu Prata &middot; Centro de Distribuição</p>
+
+      <div id="botao-google" class="botao-google"></div>
+      <p id="login-aviso" class="aviso oculto"></p>
+
+      <p class="rodape-versao"><span id="rotulo-versao">vs.2026.08.20.0003</span></p>
+    </div>
+  </section>
+
+  <!-- ===================== INÍCIO ===================== -->
+  <section id="tela-inicio" class="tela">
+    <header class="cabecalho">
+      <div>
+        <span class="cabecalho-titulo">Check-List CD</span>
+        <span id="cabecalho-usuario" class="cabecalho-sub"></span>
+      </div>
+      <button id="btn-sair" class="botao-icone" aria-label="Sair">Sair</button>
+    </header>
+
+    <main class="conteudo">
+      <div id="painel-sync" class="painel-sync">
+        <div>
+          <strong id="sync-titulo">Tudo sincronizado</strong>
+          <span id="sync-detalhe" class="painel-sync-detalhe">Nenhum registro pendente</span>
+        </div>
+        <button id="btn-sincronizar" class="botao pequeno">Sincronizar</button>
+      </div>
+
+      <h2 class="secao-titulo">Check-lists disponíveis</h2>
+      <div id="lista-modelos" class="lista-modelos"></div>
+
+      <h2 class="secao-titulo">Últimos registros neste aparelho</h2>
+      <div id="lista-historico" class="lista-historico"></div>
+    </main>
+  </section>
+
+  <!-- ===================== EXECUÇÃO ===================== -->
+  <section id="tela-execucao" class="tela">
+    <header class="cabecalho">
+      <button id="btn-voltar" class="botao-icone" aria-label="Voltar">Voltar</button>
+      <div>
+        <span id="execucao-titulo" class="cabecalho-titulo"></span>
+        <span id="execucao-sub" class="cabecalho-sub"></span>
+      </div>
+      <span></span>
+    </header>
+
+    <main class="conteudo">
+      <div id="lista-itens"></div>
+
+      <div class="bloco-assinatura">
+        <h2 class="secao-titulo">Confirmação do responsável</h2>
+        <label class="rotulo" for="assinatura-nome">Nome de quem realizou</label>
+        <input id="assinatura-nome" class="campo" type="text" autocomplete="name">
+        <label class="confirmacao">
+          <input id="assinatura-ok" type="checkbox">
+          <span>Confirmo que realizei estas verificações pessoalmente e que os dados acima são verdadeiros.</span>
+        </label>
+      </div>
+
+      <p id="execucao-erro" class="erro oculto"></p>
+      <button id="btn-concluir" class="botao grande">Concluir check-list</button>
+    </main>
+  </section>
+
+  <div id="toast" class="toast oculto"></div>
+
+  <script src="config.js"></script>
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
+  <script src="app.js"></script>
+</body>
+</html>
