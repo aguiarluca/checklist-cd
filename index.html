@@ -24,7 +24,7 @@
       <div id="botao-google" class="botao-google"></div>
       <p id="login-aviso" class="aviso oculto"></p>
 
-      <p class="rodape-versao"><span id="rotulo-versao">vs.2026.08.20.0005</span></p>
+      <p class="rodape-versao"><span id="rotulo-versao">vs.2026.08.20.0007</span></p>
     </div>
   </section>
 
@@ -49,6 +49,8 @@
 
       <h2 class="secao-titulo">Check-lists disponíveis</h2>
       <div id="lista-modelos" class="lista-modelos"></div>
+
+      <button id="btn-admin" class="botao secundario oculto">Administração</button>
 
       <h2 class="secao-titulo">Últimos registros neste aparelho</h2>
       <div id="lista-historico" class="lista-historico"></div>
@@ -81,6 +83,203 @@
 
       <p id="execucao-erro" class="erro oculto"></p>
       <button id="btn-concluir" class="botao grande">Concluir check-list</button>
+    </main>
+  </section>
+
+  <!-- ===================== ADMINISTRAÇÃO ===================== -->
+  <section id="tela-admin" class="tela">
+    <header class="cabecalho">
+      <button id="btn-adm-voltar" class="botao-icone" aria-label="Voltar">Voltar</button>
+      <div>
+        <span class="cabecalho-titulo">Administração</span>
+        <span id="adm-sub" class="cabecalho-sub"></span>
+      </div>
+      <span></span>
+    </header>
+
+    <nav class="abas">
+      <button class="aba ativa" data-painel="painel-usuarios" type="button">Usuários</button>
+      <button class="aba" data-painel="painel-modelos" type="button">Check-lists</button>
+    </nav>
+
+    <main class="conteudo">
+      <div id="painel-usuarios">
+        <button id="btn-novo-usuario" class="botao grande">Cadastrar usuário</button>
+        <div id="lista-usuarios" class="lista-registros"></div>
+      </div>
+
+      <div id="painel-modelos" class="oculto">
+        <button id="btn-novo-modelo" class="botao grande">Criar check-list</button>
+        <div id="lista-adm-modelos" class="lista-registros"></div>
+      </div>
+    </main>
+  </section>
+
+  <!-- ===================== EDITAR USUÁRIO ===================== -->
+  <section id="tela-usuario" class="tela">
+    <header class="cabecalho">
+      <button id="btn-usuario-voltar" class="botao-icone" aria-label="Voltar">Voltar</button>
+      <div><span id="usuario-titulo" class="cabecalho-titulo">Usuário</span></div>
+      <span></span>
+    </header>
+
+    <main class="conteudo">
+      <label class="rotulo" for="usuario-email">E-mail da conta Google</label>
+      <input id="usuario-email" class="campo" type="email" inputmode="email" autocomplete="off"
+             placeholder="pessoa@gmail.com">
+      <p class="dica">Precisa ser exatamente a conta que a pessoa usa no celular.</p>
+
+      <label class="rotulo" for="usuario-nome">Nome</label>
+      <input id="usuario-nome" class="campo" type="text" autocomplete="off">
+
+      <label class="rotulo" for="usuario-perfil">Perfil</label>
+      <select id="usuario-perfil" class="campo">
+        <option value="USER">USER — executa os check-lists</option>
+        <option value="ADMIN">ADMIN — executa e administra</option>
+      </select>
+
+      <label class="confirmacao">
+        <input id="usuario-ativo" type="checkbox" checked>
+        <span>Ativo — pode entrar no app</span>
+      </label>
+
+      <p id="usuario-erro" class="erro oculto"></p>
+      <button id="btn-salvar-usuario" class="botao grande">Salvar usuário</button>
+    </main>
+  </section>
+
+  <!-- ===================== EDITAR CHECK-LIST ===================== -->
+  <section id="tela-modelo" class="tela">
+    <header class="cabecalho">
+      <button id="btn-modelo-voltar" class="botao-icone" aria-label="Voltar">Voltar</button>
+      <div><span id="modelo-titulo" class="cabecalho-titulo">Check-list</span></div>
+      <span></span>
+    </header>
+
+    <main class="conteudo">
+      <label class="rotulo" for="modelo-nome">Nome do check-list</label>
+      <input id="modelo-nome" class="campo" type="text" placeholder="Ex.: Limpeza da doca">
+
+      <label class="rotulo" for="modelo-descricao">Descrição</label>
+      <input id="modelo-descricao" class="campo" type="text">
+
+      <label class="rotulo" for="modelo-setor">Setor</label>
+      <input id="modelo-setor" class="campo" type="text" placeholder="Ex.: Câmaras, Doca, Frota">
+
+      <label class="rotulo" for="modelo-frequencia">Frequência</label>
+      <select id="modelo-frequencia" class="campo">
+        <option value="DIARIA">Diária</option>
+        <option value="SEMANAL">Semanal</option>
+        <option value="QUINZENAL">Quinzenal</option>
+        <option value="MENSAL">Mensal</option>
+      </select>
+
+      <label class="rotulo" for="modelo-turnos">Turnos</label>
+      <input id="modelo-turnos" class="campo" type="text" placeholder="MANHÃ,TARDE">
+      <p class="dica">Separe por vírgula. Cada turno vira um botão na tela do operador.</p>
+
+      <label class="rotulo">Quem executa</label>
+      <div id="modelo-responsaveis" class="lista-marcaveis"></div>
+      <p class="dica">Marque pessoas para restringir. Sem ninguém marcado, o check-list
+        vale para todos. O administrador enxerga todos de qualquer forma.</p>
+
+      <label class="confirmacao">
+        <input id="modelo-ativo" type="checkbox" checked>
+        <span>Ativo — aparece para os operadores</span>
+      </label>
+
+      <h2 class="secao-titulo">Perguntas</h2>
+      <div id="lista-itens-adm" class="lista-registros"></div>
+      <button id="btn-nova-pergunta" class="botao secundario">Adicionar pergunta</button>
+
+      <p id="modelo-erro" class="erro oculto"></p>
+      <button id="btn-salvar-modelo" class="botao grande">Salvar check-list</button>
+    </main>
+  </section>
+
+  <!-- ===================== EDITAR PERGUNTA ===================== -->
+  <section id="tela-item" class="tela">
+    <header class="cabecalho">
+      <button id="btn-item-voltar" class="botao-icone" aria-label="Voltar">Voltar</button>
+      <div><span id="item-titulo" class="cabecalho-titulo">Pergunta</span></div>
+      <span></span>
+    </header>
+
+    <main class="conteudo">
+      <label class="rotulo" for="item-pergunta">Pergunta</label>
+      <textarea id="item-pergunta" class="campo" rows="2" placeholder="Ex.: Temperatura no display"></textarea>
+
+      <label class="rotulo" for="item-local">Área</label>
+      <input id="item-local" class="campo" type="text" list="locais-usados" placeholder="Ex.: Câmara Congelada">
+      <datalist id="locais-usados"></datalist>
+      <p class="dica">As perguntas ficam agrupadas por área na tela do operador.</p>
+
+      <label class="rotulo" for="item-tipo">Tipo de resposta</label>
+      <select id="item-tipo" class="campo">
+        <option value="NUMERO">Número — com faixa mínima e máxima</option>
+        <option value="SIM_NAO">Sim / Não</option>
+        <option value="LISTA">Escolha em lista</option>
+        <option value="CONTAGEM">Contagem — inteiro com + e −</option>
+        <option value="TEXTO">Texto livre</option>
+        <option value="FOTO">Somente foto</option>
+        <option value="DATA">Data</option>
+      </select>
+
+      <div id="campos-numero" class="grupo-condicional oculto">
+        <label class="rotulo" for="item-unidade">Unidade</label>
+        <input id="item-unidade" class="campo" type="text" placeholder="°C, kg, cx">
+        <div class="par-campos">
+          <div>
+            <label class="rotulo" for="item-minimo">Mínimo</label>
+            <input id="item-minimo" class="campo" type="number" step="any">
+          </div>
+          <div>
+            <label class="rotulo" for="item-maximo">Máximo</label>
+            <input id="item-maximo" class="campo" type="number" step="any">
+          </div>
+        </div>
+        <p class="dica">Deixe em branco para não ter limite daquele lado.</p>
+      </div>
+
+      <div id="campos-simnao" class="grupo-condicional oculto">
+        <label class="rotulo" for="item-esperada-simnao">Resposta que está conforme</label>
+        <select id="item-esperada-simnao" class="campo">
+          <option value="SIM">SIM</option>
+          <option value="NAO">NÃO</option>
+          <option value="">Qualquer uma — não reprova</option>
+        </select>
+      </div>
+
+      <div id="campos-lista" class="grupo-condicional oculto">
+        <label class="rotulo" for="item-opcoes">Opções</label>
+        <textarea id="item-opcoes" class="campo" rows="4"
+                  placeholder="Uma por linha:&#10;Conforme&#10;Não conforme&#10;Não se aplica"></textarea>
+        <label class="rotulo" for="item-esperada-lista">Opções que estão conformes</label>
+        <input id="item-esperada-lista" class="campo" type="text" placeholder="Conforme|Não se aplica">
+        <p class="dica">Separe por barra vertical. Em branco: nenhuma opção reprova.</p>
+      </div>
+
+      <div id="campos-data" class="grupo-condicional oculto">
+        <label class="rotulo" for="item-regra-data">Regra da data</label>
+        <select id="item-regra-data" class="campo">
+          <option value="">Sem regra</option>
+          <option value="FUTURA">Não pode estar vencida (validade)</option>
+          <option value="PASSADA">Precisa ser uma data passada</option>
+        </select>
+      </div>
+
+      <label class="confirmacao">
+        <input id="item-obrigatorio" type="checkbox" checked>
+        <span>Obrigatória — não dá para concluir sem responder</span>
+      </label>
+
+      <label class="confirmacao" id="rotulo-exige-foto">
+        <input id="item-exige-foto" type="checkbox">
+        <span>Exige foto</span>
+      </label>
+
+      <p id="item-erro" class="erro oculto"></p>
+      <button id="btn-salvar-item" class="botao grande">Salvar pergunta</button>
     </main>
   </section>
 
