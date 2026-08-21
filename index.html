@@ -24,7 +24,7 @@
       <div id="botao-google" class="botao-google"></div>
       <p id="login-aviso" class="aviso oculto"></p>
 
-      <p class="rodape-versao"><span id="rotulo-versao">vs.2026.08.21.0009</span></p>
+      <p class="rodape-versao"><span id="rotulo-versao">vs.2026.08.21.0010</span></p>
     </div>
   </section>
 
@@ -45,6 +45,11 @@
           <span id="sync-detalhe" class="painel-sync-detalhe">Nenhum registro pendente</span>
         </div>
         <button id="btn-sincronizar" class="botao pequeno">Sincronizar</button>
+      </div>
+
+      <div id="area-rascunhos" class="oculto">
+        <h2 class="secao-titulo">Em aberto — falta finalizar</h2>
+        <div id="lista-rascunhos" class="lista-registros"></div>
       </div>
 
       <h2 class="secao-titulo">Check-lists disponíveis</h2>
@@ -86,6 +91,18 @@
       </div>
 
       <p id="execucao-erro" class="erro oculto"></p>
+
+      <div id="bloco-incompleto" class="atencao-caixa oculto">
+        <strong>Encerrar mesmo faltando respostas</strong>
+        <p>Use quando o que faltou não vai acontecer hoje — por exemplo, o veículo que
+          não chegou. O check-list vai para a planilha marcado como INCOMPLETO.</p>
+        <label class="rotulo" for="justificativa">Motivo</label>
+        <textarea id="justificativa" class="campo" rows="2"
+                  placeholder="Ex.: caminhão da rota 3 não veio hoje"></textarea>
+        <button id="btn-encerrar-incompleto" class="botao secundario">Encerrar como incompleto</button>
+      </div>
+
+      <button id="btn-salvar-aberto" class="botao secundario oculto">Salvar e continuar depois</button>
       <button id="btn-concluir" class="botao grande">Concluir check-list</button>
     </main>
   </section>
@@ -198,6 +215,14 @@
       <div id="modelo-responsaveis" class="lista-marcaveis"></div>
       <p class="dica">Marque pessoas para restringir. Sem ninguém marcado, o check-list
         vale para todos. O administrador enxerga todos de qualquer forma.</p>
+
+      <label class="confirmacao">
+        <input id="modelo-rascunho" type="checkbox">
+        <span>Permitir salvar em aberto — o operador pode preencher em partes e
+          finalizar depois</span>
+      </label>
+      <p class="dica">⚠ Check-list com esta opção <strong>exige internet</strong>: o parcial
+        fica guardado no servidor. Não use em check-list feito dentro da câmara fria.</p>
 
       <label class="confirmacao">
         <input id="modelo-ativo" type="checkbox" checked>

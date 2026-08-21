@@ -298,6 +298,11 @@ select.campo { appearance: none; background-image: none; }
   padding: 8px 16px; text-align: left;
 }
 .chip-turno.feito:disabled { opacity: .75; }
+.chip-turno.em-aberto {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 2px;
+  border-color: var(--ambar); color: var(--ambar);
+  padding: 8px 16px; text-align: left;
+}
 .chip-turno-nome { font-weight: 700; }
 .chip-turno-quem { font-size: 12px; font-weight: 400; color: var(--texto-fraco); }
 
@@ -357,6 +362,19 @@ select.campo { appearance: none; background-image: none; }
   min-width: 90px; font-size: 14px; font-weight: 600; color: var(--texto-fraco);
 }
 .linha-horario .campo { flex: 1; }
+
+/* ---------- encerrar como incompleto ---------- */
+.atencao-caixa {
+  background: #fdf1dc; border: 1px solid var(--ambar);
+  border-radius: var(--raio); padding: 16px; margin: 16px 0;
+}
+.atencao-caixa strong { display: block; color: var(--ambar); margin-bottom: 6px; }
+.atencao-caixa p { margin: 0 0 8px; font-size: 14px; color: var(--texto-fraco); }
+.atencao-caixa .botao { margin-top: 12px; width: 100%; }
+
+@media (prefers-color-scheme: dark) {
+  .atencao-caixa { background: #33260f; }
+}
 
 /* ---------- mensagens ---------- */
 .erro { color: var(--vermelho); font-weight: 600; margin: 12px 0; }

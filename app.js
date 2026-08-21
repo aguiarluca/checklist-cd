@@ -229,7 +229,7 @@ async function execucoesDeHoje() {
     .map(r => ({
       modeloId: r.modeloId, turno: r.turno, email: estado.usuario.email,
       nome: r.assinaturaNome || estado.usuario.nome,
-      fimEm: r.fimEm, local: true
+      fimEm: r.fimEm, status: 'CONCLUIDA', local: true
     }));
 
   // O registro local pode já ter subido: descarta o que o servidor devolveu.
@@ -237,12 +237,21 @@ async function execucoesDeHoje() {
   return doServidor.concat(locais.filter(l => !idsServidor.has(l.modeloId + '|' + l.turno)));
 }
 
-/** Devolve a execução que bloqueia este turno, ou null se está liberado. */
+/**
+ * Devolve a execução que ocupa este turno, ou null se está liberado.
+ * Um rascunho ocupa o turno mesmo em check-list de repetição livre — senão o
+ * operador criaria um segundo formulário em paralelo em vez de continuar o dele.
+ */
 function bloqueioDoTurno(modelo, turno, feitasHoje) {
+  const doTurno = feitasHoje.filter(e =>
+    e.modeloId === modelo.modeloId && e.turno === turno);
+
+  const rascunho = doTurno.find(e => e.status === 'EM_ANDAMENTO');
+  if (rascunho) return rascunho;
+
   if (modelo.repeticao !== 'UM_POR_TURNO' && modelo.repeticao !== 'UM_POR_PESSOA_TURNO') return null;
-  return feitasHoje.find(e =>
-    e.modeloId === modelo.modeloId &&
-    e.turno === turno &&
+  return doTurno.find(e =>
+    e.status !== 'EM_ANDAMENTO' &&
     (modelo.repeticao === 'UM_POR_TURNO' || e.email === estado.usuario.email)
   ) || null;
 }
@@ -273,10 +282,13 @@ async function renderizarModelos() {
     turnos.forEach(turno => {
       const bloqueio = bloqueioDoTurno(modelo, turno, feitasHoje);
       areaTurnos.appendChild(montarChipTurno(modelo, turno, bloqueio));
+
     });
 
     alvo.appendChild(cartao);
   });
+
+  renderizarRascunhos();
 }
 
 function montarChipTurno(modelo, turno, bloqueio) {
@@ -292,6 +304,23 @@ function montarChipTurno(modelo, turno, bloqueio) {
 
   const quem = bloqueio.local ? 'você' : (bloqueio.nome || bloqueio.email);
   const hora = bloqueio.fimEm ? formatarHora(new Date(bloqueio.fimEm)) : '';
+
+  // Rascunho não é bloqueio: é convite para continuar de onde parou.
+  if (bloqueio.status === 'EM_ANDAMENTO') {
+    const meu = bloqueio.email === estado.usuario.email;
+    botao.classList.add('em-aberto');
+    botao.innerHTML = '<span class="chip-turno-nome"></span><span class="chip-turno-quem"></span>';
+    botao.querySelector('.chip-turno-nome').textContent = '⏳ ' + turno;
+    botao.querySelector('.chip-turno-quem').textContent =
+      meu ? 'em aberto · continuar' : 'em aberto por ' + quem;
+    if (meu || estado.usuario.perfil === 'ADMIN') {
+      botao.addEventListener('click', () => retomarRascunho(bloqueio));
+    } else {
+      botao.disabled = true;
+    }
+    return botao;
+  }
+
   botao.classList.add('feito');
   botao.innerHTML = '<span class="chip-turno-nome"></span><span class="chip-turno-quem"></span>';
   botao.querySelector('.chip-turno-nome').textContent = '✓ ' + turno;
@@ -316,29 +345,99 @@ function montarChipTurno(modelo, turno, bloqueio) {
    5. EXECUÇÃO DO CHECK-LIST
    ========================================================================== */
 
-function iniciarExecucao(modelo, turno) {
+/** `preenchidas` vem preenchido quando se está retomando um rascunho do servidor. */
+function iniciarExecucao(modelo, turno, rascunho) {
   estado.execucaoAtual = {
-    execucaoId: gerarUuid(),
+    execucaoId: rascunho ? rascunho.execucaoId : gerarUuid(),
     modeloId: modelo.modeloId,
     modeloNome: modelo.nome,
     turno: turno,
-    data: dataDeHoje(),
+    data: rascunho ? rascunho.data : dataDeHoje(),
     deviceId: estado.deviceId,
-    inicioEm: new Date().toISOString(),
+    inicioEm: rascunho && rascunho.inicioEm ? rascunho.inicioEm : new Date().toISOString(),
     respostas: {},
+    emAberto: !!rascunho,
     modelo: modelo
   };
 
   document.getElementById('execucao-titulo').textContent = modelo.nome;
   document.getElementById('execucao-sub').textContent =
-    turno + ' · ' + formatarData(new Date());
+    turno + ' · ' + (rascunho ? 'continuando' : formatarData(new Date()));
   document.getElementById('assinatura-nome').value = estado.usuario.nome;
   document.getElementById('assinatura-ok').checked = false;
   document.getElementById('execucao-erro').classList.add('oculto');
+  document.getElementById('bloco-incompleto').classList.add('oculto');
+  document.getElementById('justificativa').value = '';
+  document.getElementById('btn-salvar-aberto').classList.toggle('oculto', !modelo.permiteRascunho);
 
   renderizarItens(modelo);
+  if (rascunho) aplicarRespostasSalvas(modelo, rascunho.respostas || []);
+
   irPara('tela-execucao');
-  window.scrollTo(0, 0);
+}
+
+/** Repõe na tela o que já havia sido respondido em salvamentos anteriores. */
+function aplicarRespostasSalvas(modelo, respostas) {
+  respostas.forEach(salva => {
+    const item = modelo.itens.find(i => i.itemId === salva.itemId);
+    if (!item) return;
+
+    const destino = estado.execucaoAtual.respostas[item.itemId];
+    if (!destino) return;
+    destino.valor = salva.valor;
+    destino.acaoCorretiva = salva.acaoCorretiva;
+    destino.respostaId = salva.respostaId;
+    destino.fotoUrl = salva.fotoUrl;   // já está no Drive, não sobe de novo
+
+    const caixa = document.querySelector('[data-item-id="' + item.itemId + '"]');
+    if (!caixa) return;
+    repintarItem(item, caixa, salva);
+  });
+}
+
+/** Reflete no controle da tela o valor que veio do rascunho. */
+function repintarItem(item, caixa, salva) {
+  const valor = String(salva.valor || '');
+
+  if (item.tipo === 'NUMERO' || item.tipo === 'CONTAGEM') {
+    const campo = caixa.querySelector('input[type="text"]');
+    const sinal = caixa.querySelector('.botao-sinal');
+    if (campo) campo.value = valor.replace('-', '').replace('.', ',');
+    if (sinal && item.tipo === 'NUMERO') {
+      const negativo = valor.startsWith('-');
+      sinal.textContent = negativo ? '−' : '+';
+      sinal.classList.toggle('negativo', negativo);
+    }
+  } else if (item.tipo === 'SIM_NAO') {
+    caixa.querySelectorAll('.par-sim-nao button').forEach(b => {
+      const ehSim = b.textContent === 'SIM';
+      if ((ehSim && valor === 'SIM') || (!ehSim && valor === 'NAO')) {
+        b.classList.add(ehSim ? 'escolhido-sim' : 'escolhido-nao');
+      }
+    });
+  } else if (item.tipo === 'LISTA') {
+    caixa.querySelectorAll('.opcao').forEach(b => {
+      if (b.textContent === valor) b.classList.add('escolhida');
+    });
+  } else if (item.tipo === 'DATA') {
+    const campo = caixa.querySelector('input[type="date"]');
+    if (campo) campo.value = valor;
+  } else if (item.tipo === 'TEXTO') {
+    const campo = caixa.querySelector('textarea');
+    if (campo) campo.value = valor;
+  }
+
+  if (salva.acaoCorretiva) {
+    const acao = caixa.querySelector('.bloco-acao textarea');
+    if (acao) acao.value = salva.acaoCorretiva;
+  }
+
+  if (salva.fotoUrl) {
+    const botao = caixa.querySelector('.area-foto .botao');
+    if (botao) botao.textContent = 'Foto já registrada — refazer';
+  }
+
+  if (valor !== '') atualizarConformidade(item, caixa);
 }
 
 function renderizarItens(modelo) {
@@ -388,7 +487,8 @@ function montarItem(item) {
   }
   caixa.appendChild(pergunta);
 
-  estado.execucaoAtual.respostas[item.itemId] = { valor: '', acaoCorretiva: '', foto: null };
+  estado.execucaoAtual.respostas[item.itemId] =
+    { valor: '', acaoCorretiva: '', foto: null, fotoUrl: '', respostaId: '' };
 
   if (item.tipo === 'NUMERO')        caixa.appendChild(montarCampoNumero(item, caixa));
   else if (item.tipo === 'CONTAGEM') caixa.appendChild(montarCampoContagem(item, caixa));
@@ -713,23 +813,60 @@ function descreverFaixa(item) {
    6. CONCLUSÃO E FILA OFFLINE
    ========================================================================== */
 
-async function concluirExecucao() {
+async function concluirExecucao(incompleta) {
   const execucao = estado.execucaoAtual;
-  const problema = validarExecucao(execucao);
-
   const areaErro = document.getElementById('execucao-erro');
-  if (problema) {
-    areaErro.textContent = problema.mensagem;
-    areaErro.classList.remove('oculto');
-    const alvo = problema.itemId
-      ? document.querySelector('[data-item-id="' + problema.itemId + '"]')
-      : null;
-    if (alvo) alvo.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    return;
+
+  if (!incompleta) {
+    const problema = validarExecucao(execucao);
+    if (problema) {
+      areaErro.textContent = problema.mensagem;
+      areaErro.classList.remove('oculto');
+      const alvo = problema.itemId
+        ? document.querySelector('[data-item-id="' + problema.itemId + '"]')
+        : null;
+      if (alvo) alvo.scrollIntoView({ behavior: 'smooth', block: 'center' });
+
+      // Só oferece o encerramento parcial se o que falta for resposta em branco —
+      // ação corretiva e foto de item reprovado continuam obrigatórias.
+      if (execucao.modelo.permiteRascunho && problema.emBranco) {
+        document.getElementById('bloco-incompleto').classList.remove('oculto');
+      }
+      return;
+    }
+  } else {
+    const problema = validarExecucao(execucao, true);
+    if (problema) {
+      areaErro.textContent = problema.mensagem;
+      areaErro.classList.remove('oculto');
+      return;
+    }
+    if (!document.getElementById('justificativa').value.trim()) {
+      areaErro.textContent = 'Escreva o motivo de encerrar sem todas as respostas.';
+      areaErro.classList.remove('oculto');
+      return;
+    }
   }
   areaErro.classList.add('oculto');
 
-  const registro = {
+  const registro = montarRegistro(execucao, {
+    incompleta: !!incompleta,
+    justificativa: document.getElementById('justificativa').value.trim(),
+    fimEm: new Date().toISOString()
+  });
+
+  await BD.salvar('execucoes', registro);
+  estado.execucaoAtual = null;
+
+  mostrarToast(incompleta ? 'Encerrado como incompleto' : 'Check-list salvo no aparelho', 'sucesso');
+  irPara('tela-inicio');
+  await renderizarModelos();   // o turno recém-feito já aparece bloqueado
+  await atualizarPainel();
+  sincronizar();
+}
+
+function montarRegistro(execucao, extras) {
+  return Object.assign({
     execucaoId: execucao.execucaoId,
     modeloId: execucao.modeloId,
     modeloNome: execucao.modeloNome,
@@ -737,48 +874,171 @@ async function concluirExecucao() {
     turno: execucao.turno,
     deviceId: execucao.deviceId,
     inicioEm: execucao.inicioEm,
-    fimEm: new Date().toISOString(),
-    assinaturaNome: document.getElementById('assinatura-nome').value.trim(),
+    assinaturaNome: document.getElementById('assinatura-nome').value.trim() || estado.usuario.nome,
     assinaturaEm: new Date().toISOString(),
     status: 'PENDENTE',
     erro: '',
-    respostas: execucao.modelo.itens.map(item => ({
-      respostaId: gerarUuid(),
-      itemId: item.itemId,
-      valor: estado.execucaoAtual.respostas[item.itemId].valor,
-      acaoCorretiva: estado.execucaoAtual.respostas[item.itemId].acaoCorretiva,
-      foto: estado.execucaoAtual.respostas[item.itemId].foto,
-      registradoEm: new Date().toISOString()
-    }))
-  };
-
-  await BD.salvar('execucoes', registro);
-  estado.execucaoAtual = null;
-
-  mostrarToast('Check-list salvo no aparelho', 'sucesso');
-  irPara('tela-inicio');
-  await renderizarModelos();   // o turno recém-feito já aparece bloqueado
-  await atualizarPainel();
-  sincronizar();
+    respostas: execucao.modelo.itens.map(item => {
+      const r = execucao.respostas[item.itemId];
+      return {
+        respostaId: r.respostaId || gerarUuid(),
+        itemId: item.itemId,
+        valor: r.valor,
+        acaoCorretiva: r.acaoCorretiva,
+        foto: r.foto,
+        fotoUrl: r.fotoUrl || '',     // já no Drive: o servidor reaproveita
+        registradoEm: new Date().toISOString()
+      };
+    })
+  }, extras);
 }
 
-/** Devolve o primeiro problema encontrado, ou null se estiver tudo certo. */
-function validarExecucao(execucao) {
+/* ---------- salvar em aberto ---------- */
+
+/**
+ * O parcial vai direto para o servidor, não para a fila offline: é o que permite
+ * retomar de outro aparelho e o que faz o rascunho aparecer no painel do dia.
+ */
+async function salvarEmAberto() {
+  const execucao = estado.execucaoAtual;
+  const areaErro = document.getElementById('execucao-erro');
+
+  const problema = validarExecucao(execucao, true);   // só o que já foi respondido
+  if (problema) {
+    areaErro.textContent = problema.mensagem;
+    areaErro.classList.remove('oculto');
+    return;
+  }
+  areaErro.classList.add('oculto');
+
+  if (!navigator.onLine) {
+    return mostrarToast('Salvar em aberto precisa de internet.', 'falha');
+  }
+  if (!(await renovarToken())) {
+    return mostrarToast('Sessão expirada. Entre novamente.', 'falha');
+  }
+
+  const botao = document.getElementById('btn-salvar-aberto');
+  botao.disabled = true;
+  botao.textContent = 'Salvando...';
+
+  try {
+    const registro = montarRegistro(execucao, {});
+    const retorno = await chamarApi('rascunho', {
+      idToken: estado.token.valor,
+      execucao: montarPayload(registro)
+    });
+
+    if (retorno.recusada) {
+      mostrarToast(retorno.motivo, 'falha');
+      estado.execucaoAtual = null;
+      irPara('tela-inicio');
+      return;
+    }
+
+    // Guarda as URLs das fotos que acabaram de subir: no próximo salvamento elas
+    // não são reenviadas, e o Drive não acumula cópias da mesma foto.
+    Object.keys(retorno.fotos || {}).forEach(respostaId => {
+      const item = execucao.modelo.itens.find(
+        i => execucao.respostas[i.itemId].respostaId === respostaId);
+      if (item) {
+        execucao.respostas[item.itemId].fotoUrl = retorno.fotos[respostaId];
+        execucao.respostas[item.itemId].foto = null;
+      }
+    });
+    registro.respostas.forEach(r => {
+      const destino = execucao.respostas[r.itemId];
+      if (destino && !destino.respostaId) destino.respostaId = r.respostaId;
+    });
+
+    mostrarToast('Salvo — ' + retorno.respondidas + ' de ' +
+                 execucao.modelo.itens.length + ' respondidas', 'sucesso');
+    estado.execucaoAtual = null;
+    irPara('tela-inicio');
+    await carregarModelos();
+    await atualizarPainel();
+  } catch (erro) {
+    areaErro.textContent = erro.message;
+    areaErro.classList.remove('oculto');
+  } finally {
+    botao.disabled = false;
+    botao.textContent = 'Salvar e continuar depois';
+  }
+}
+
+async function retomarRascunho(resumo) {
+  if (!navigator.onLine) return mostrarToast('Retomar precisa de internet.', 'falha');
+  if (!(await renovarToken())) return mostrarToast('Sessão expirada. Entre novamente.', 'falha');
+
+  try {
+    const retorno = await chamarApi('abrirRascunho', {
+      idToken: estado.token.valor, execucaoId: resumo.execucaoId
+    });
+    const modelo = estado.modelos.find(m => m.modeloId === retorno.execucao.modeloId);
+    if (!modelo) throw new Error('Check-list não está mais disponível para você.');
+    iniciarExecucao(modelo, retorno.execucao.turno, retorno.execucao);
+  } catch (erro) {
+    mostrarToast(erro.message, 'falha');
+  }
+}
+
+function renderizarRascunhos() {
+  const area = document.getElementById('area-rascunhos');
+  const alvo = document.getElementById('lista-rascunhos');
+  alvo.innerHTML = '';
+
+  const meus = (estado.hoje || []).filter(e =>
+    e.status === 'EM_ANDAMENTO' &&
+    (estado.usuario.perfil === 'ADMIN' || e.email === estado.usuario.email));
+
+  area.classList.toggle('oculto', !meus.length);
+
+  meus.forEach(rascunho => {
+    const modelo = estado.modelos.find(m => m.modeloId === rascunho.modeloId);
+    const total = modelo ? modelo.itens.length : 0;
+    const linha = criarRegistro(
+      rascunho.modeloNome + ' · ' + rascunho.turno,
+      rascunho.respondidas + (total ? ' de ' + total : '') + ' respondidas · ' +
+        (rascunho.email === estado.usuario.email ? 'você' : rascunho.nome),
+      'Continuar', 'pendente');
+    linha.addEventListener('click', () => retomarRascunho(rascunho));
+    alvo.appendChild(linha);
+  });
+}
+
+/**
+ * Devolve o primeiro problema encontrado, ou null se estiver tudo certo.
+ *
+ * No modo `parcial` (salvar em aberto ou encerrar como incompleto), pergunta em
+ * branco deixa de ser problema — mas o que foi respondido continua tendo que
+ * estar completo: reprovação sem ação corretiva e item sem a foto exigida seguem
+ * barrando, senão o rascunho viraria a porta dos fundos das regras.
+ */
+function validarExecucao(execucao, parcial) {
   for (const item of execucao.modelo.itens) {
     const resposta = execucao.respostas[item.itemId];
     const ondeEsta = ' (' + (item.local || 'Geral') + ')';
+    const respondida = String(resposta.valor).trim() !== '';
 
-    if (item.obrigatorio && String(resposta.valor).trim() === '') {
-      return { mensagem: 'Responda: ' + item.pergunta + ondeEsta, itemId: item.itemId };
+    if (!parcial && item.obrigatorio && !respondida) {
+      return { mensagem: 'Responda: ' + item.pergunta + ondeEsta,
+               itemId: item.itemId, emBranco: true };
     }
-    if (resposta.valor !== '' && !avaliarConformidadeLocal(item, resposta.valor)
+    if (respondida && !avaliarConformidadeLocal(item, resposta.valor)
         && !String(resposta.acaoCorretiva).trim()) {
-      return { mensagem: 'Descreva a ação corretiva de: ' + item.pergunta + ondeEsta, itemId: item.itemId };
+      return { mensagem: 'Descreva a ação corretiva de: ' + item.pergunta + ondeEsta,
+               itemId: item.itemId };
     }
-    if (exigeFoto(item) && !resposta.foto) {
+    if (exigeFoto(item) && respondida && !resposta.foto && !resposta.fotoUrl) {
       return { mensagem: 'Falta a foto de: ' + item.pergunta + ondeEsta, itemId: item.itemId };
     }
+    if (exigeFoto(item) && !parcial && !resposta.foto && !resposta.fotoUrl) {
+      return { mensagem: 'Falta a foto de: ' + item.pergunta + ondeEsta,
+               itemId: item.itemId, emBranco: true };
+    }
   }
+
+  if (parcial) return null;   // rascunho não é assinado; a assinatura é do encerramento
 
   if (!document.getElementById('assinatura-nome').value.trim()) {
     return { mensagem: 'Informe o nome do responsável.', itemId: null };
@@ -866,6 +1126,8 @@ function montarPayload(registro) {
     fimEm: registro.fimEm,
     assinaturaNome: registro.assinaturaNome,
     assinaturaEm: registro.assinaturaEm,
+    incompleta: !!registro.incompleta,
+    justificativa: registro.justificativa || '',
     respostas: registro.respostas
   };
 }
@@ -1100,6 +1362,7 @@ function abrirModelo(modelo) {
   document.getElementById('modelo-frequencia').value = m.frequencia || 'DIARIA';
   document.getElementById('modelo-turnos').value = m.turnos.join(',');
   document.getElementById('modelo-repeticao').value = m.repeticao || 'LIVRE';
+  document.getElementById('modelo-rascunho').checked = !!m.permiteRascunho;
   document.getElementById('modelo-ativo').checked = m.ativo;
   document.getElementById('modelo-erro').classList.add('oculto');
 
@@ -1239,6 +1502,7 @@ async function salvarModelo() {
   m.turnos = document.getElementById('modelo-turnos').value
     .split(',').map(t => t.trim().toUpperCase()).filter(Boolean);
   m.repeticao = document.getElementById('modelo-repeticao').value;
+  m.permiteRascunho = document.getElementById('modelo-rascunho').checked;
   m.horarios = (m.horarios || []).slice(0, m.turnos.length);
   m.ativo = document.getElementById('modelo-ativo').checked;
 
@@ -1263,7 +1527,7 @@ async function salvarModelo() {
         modeloId: m.modeloId, nome: m.nome, descricao: m.descricao, setor: m.setor,
         frequencia: m.frequencia, turnos: m.turnos.join(','),
         horarios: (m.horarios || []).map(h => h || '').join(','),
-        repeticao: m.repeticao,
+        repeticao: m.repeticao, permiteRascunho: m.permiteRascunho,
         responsaveis: m.responsaveis, ativo: m.ativo
       }
     });
@@ -1479,7 +1743,9 @@ function renderizarPainelDoDia(feitasHoje) {
 
   estado.modelos.forEach(modelo => {
     (modelo.turnos.length ? modelo.turnos : ['ÚNICO']).forEach((turno, indice) => {
-      const feita = feitasHoje.find(e => e.modeloId === modelo.modeloId && e.turno === turno);
+      const registro = feitasHoje.find(e => e.modeloId === modelo.modeloId && e.turno === turno);
+      const emAberto = registro && registro.status === 'EM_ANDAMENTO';
+      const feita = emAberto ? null : registro;
       const limite = (modelo.horarios || [])[indice] || '';
       linhas.push({
         modelo: modelo.nome,
@@ -1487,6 +1753,8 @@ function renderizarPainelDoDia(feitasHoje) {
         turno: turno,
         limite: limite,
         feita: feita || null,
+        emAberto: emAberto ? registro : null,
+        total: modelo.itens.length,
         atrasada: !feita && limite && agora > limite
       });
     });
@@ -1515,19 +1783,28 @@ function renderizarPainelDoDia(feitasHoje) {
   linhas.sort((a, b) => prioridade(a) - prioridade(b));
 
   linhas.forEach(linha => {
-    const detalhe = linha.feita
-      ? (linha.feita.nome || linha.feita.email) +
+    let detalhe, marca, classe;
+
+    if (linha.emAberto) {
+      detalhe = linha.emAberto.nome + ' · ' + linha.emAberto.respondidas +
+                ' de ' + linha.total + ' respondidas';
+      marca = 'Em aberto';
+      classe = 'pendente';
+    } else if (linha.feita) {
+      detalhe = (linha.feita.nome || linha.feita.email) +
         (linha.feita.fimEm ? ' · ' + formatarHora(new Date(linha.feita.fimEm)) : '') +
-        (linha.feita.naoConformidades ? ' · ' + linha.feita.naoConformidades + ' não conf.' : '')
-      : (linha.limite ? 'Limite ' + linha.limite : 'Sem horário limite');
-
-    const marca = linha.feita
-      ? (linha.feita.naoConformidades ? 'Não conforme' : 'Feito')
-      : (linha.atrasada ? 'Atrasado' : 'Pendente');
-
-    const classe = linha.feita
-      ? (linha.feita.naoConformidades ? 'erro' : 'enviada')
-      : (linha.atrasada ? 'erro' : 'pendente');
+        (linha.feita.naoConformidades ? ' · ' + linha.feita.naoConformidades + ' não conf.' : '') +
+        (linha.feita.status === 'INCOMPLETA' && linha.feita.justificativa
+          ? ' · ' + linha.feita.justificativa : '');
+      marca = linha.feita.status === 'INCOMPLETA' ? 'Incompleto'
+            : (linha.feita.naoConformidades ? 'Não conforme' : 'Feito');
+      classe = linha.feita.naoConformidades || linha.feita.status === 'INCOMPLETA'
+             ? 'erro' : 'enviada';
+    } else {
+      detalhe = linha.limite ? 'Limite ' + linha.limite : 'Sem horário limite';
+      marca = linha.atrasada ? 'Atrasado' : 'Pendente';
+      classe = linha.atrasada ? 'erro' : 'pendente';
+    }
 
     alvo.appendChild(criarRegistro(
       linha.modelo + ' · ' + linha.turno,
@@ -1826,7 +2103,9 @@ async function iniciar() {
       irPara('tela-inicio');
     }
   });
-  document.getElementById('btn-concluir').addEventListener('click', concluirExecucao);
+  document.getElementById('btn-concluir').addEventListener('click', () => concluirExecucao(false));
+  document.getElementById('btn-salvar-aberto').addEventListener('click', salvarEmAberto);
+  document.getElementById('btn-encerrar-incompleto').addEventListener('click', () => concluirExecucao(true));
 
   // --- administração ---
   document.getElementById('btn-admin').addEventListener('click', abrirAdmin);
