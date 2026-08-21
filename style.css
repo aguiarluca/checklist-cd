@@ -291,6 +291,73 @@ textarea.campo { min-height: 88px; font-size: 16px; resize: vertical; }
 
 select.campo { appearance: none; background-image: none; }
 
+/* ---------- turno já realizado ---------- */
+.chip-turno.feito {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 2px;
+  border-style: dashed; border-color: var(--verde); color: var(--verde);
+  padding: 8px 16px; text-align: left;
+}
+.chip-turno.feito:disabled { opacity: .75; }
+.chip-turno-nome { font-weight: 700; }
+.chip-turno-quem { font-size: 12px; font-weight: 400; color: var(--texto-fraco); }
+
+/* ---------- botões de administração na tela inicial ---------- */
+.area-admin { display: flex; flex-direction: column; gap: 10px; margin-top: 24px; }
+.area-admin .botao { margin-top: 0; }
+
+/* ---------- cartões de número ---------- */
+.cartoes-numeros {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 10px; margin-bottom: 8px;
+}
+.cartao-numero {
+  background: var(--cartao); border: 1px solid var(--borda);
+  border-top: 4px solid var(--texto-fraco);
+  border-radius: var(--raio); padding: 14px;
+  display: flex; flex-direction: column; gap: 2px;
+}
+.cartao-numero strong { font-size: 26px; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.cartao-numero span { font-size: 13px; color: var(--texto-fraco); }
+.cartao-numero.bom { border-top-color: var(--verde); }
+.cartao-numero.atencao { border-top-color: var(--ambar); }
+.cartao-numero.ruim { border-top-color: var(--vermelho); }
+
+/* ---------- barras ---------- */
+.barra-linha { margin-bottom: 14px; }
+.barra-topo {
+  display: flex; justify-content: space-between; gap: 12px;
+  font-size: 14px; margin-bottom: 5px;
+}
+.barra-topo span { color: var(--texto-fraco); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.barra-topo strong { font-variant-numeric: tabular-nums; flex-shrink: 0; }
+.barra-trilho { height: 10px; background: var(--borda); border-radius: 999px; overflow: hidden; }
+.barra { height: 100%; background: var(--azul-claro); border-radius: 999px; }
+.barra.bom { background: var(--verde); }
+.barra.atencao { background: var(--ambar); }
+.barra.ruim { background: var(--vermelho); }
+
+/* ---------- gráfico de série ---------- */
+.grafico {
+  background: var(--cartao); border: 1px solid var(--borda);
+  border-radius: var(--raio); padding: 12px; margin-bottom: 8px;
+}
+.svg-serie { width: 100%; height: auto; display: block; }
+.svg-serie .faixa-ok { fill: var(--verde); opacity: .12; }
+.svg-serie .eixo { stroke: var(--borda); stroke-width: 1; }
+.svg-serie .eixo-texto { fill: var(--texto-fraco); font-size: 12px; }
+.svg-serie .linha-serie { fill: none; stroke: var(--azul-claro); stroke-width: 2.5;
+                          stroke-linejoin: round; stroke-linecap: round; }
+.svg-serie .ponto { fill: var(--azul-claro); }
+.svg-serie .ponto.fora { fill: var(--vermelho); r: 5.5; }
+
+/* ---------- horários por turno ---------- */
+.lista-horarios { display: flex; flex-direction: column; gap: 8px; margin-top: 6px; }
+.linha-horario { display: flex; align-items: center; gap: 12px; }
+.linha-horario span {
+  min-width: 90px; font-size: 14px; font-weight: 600; color: var(--texto-fraco);
+}
+.linha-horario .campo { flex: 1; }
+
 /* ---------- mensagens ---------- */
 .erro { color: var(--vermelho); font-weight: 600; margin: 12px 0; }
 .aviso { color: var(--ambar); font-size: 15px; margin-top: 16px; }

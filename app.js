@@ -11,6 +11,8 @@ const estado = {
   usuario: null,
   token: null,          // { valor, expiraEm }
   modelos: [],
+  hoje: [],             // execuções de hoje conhecidas pelo servidor
+  dataServidor: '',
   deviceId: null,
   execucaoAtual: null,
   sincronizando: false
@@ -201,46 +203,113 @@ async function carregarModelos() {
   try {
     const retorno = await chamarApi('carregar', { idToken: estado.token.valor });
     estado.modelos = retorno.modelos;
+    estado.hoje = retorno.hoje || [];
+    estado.dataServidor = retorno.dataServidor || dataDeHoje();
     await BD.definir('modelos', retorno.modelos);
+    await BD.definir('hoje', { data: estado.dataServidor, execucoes: estado.hoje });
   } catch (erro) {
     const emCache = await BD.obter('modelos');
     if (!emCache) throw erro;
     estado.modelos = emCache; // segue com a última versão baixada
   }
-  renderizarModelos();
+  await renderizarModelos();
 }
 
-function renderizarModelos() {
+/**
+ * O que já foi feito hoje, juntando o que o servidor sabe com o que ainda está
+ * na fila deste aparelho. Sem a segunda parte, o operador que registrou offline
+ * veria o turno como disponível e faria tudo de novo.
+ */
+async function execucoesDeHoje() {
+  const hoje = dataDeHoje();
+  const doServidor = (estado.hoje || []).filter(e => !e.recusada);
+
+  const locais = (await BD.listar('execucoes'))
+    .filter(r => r.data === hoje && r.status !== 'RECUSADA')
+    .map(r => ({
+      modeloId: r.modeloId, turno: r.turno, email: estado.usuario.email,
+      nome: r.assinaturaNome || estado.usuario.nome,
+      fimEm: r.fimEm, local: true
+    }));
+
+  // O registro local pode já ter subido: descarta o que o servidor devolveu.
+  const idsServidor = new Set(doServidor.map(e => e.modeloId + '|' + e.turno));
+  return doServidor.concat(locais.filter(l => !idsServidor.has(l.modeloId + '|' + l.turno)));
+}
+
+/** Devolve a execução que bloqueia este turno, ou null se está liberado. */
+function bloqueioDoTurno(modelo, turno, feitasHoje) {
+  if (modelo.repeticao !== 'UM_POR_TURNO' && modelo.repeticao !== 'UM_POR_PESSOA_TURNO') return null;
+  return feitasHoje.find(e =>
+    e.modeloId === modelo.modeloId &&
+    e.turno === turno &&
+    (modelo.repeticao === 'UM_POR_TURNO' || e.email === estado.usuario.email)
+  ) || null;
+}
+
+async function renderizarModelos() {
   const alvo = document.getElementById('lista-modelos');
   alvo.innerHTML = '';
 
   if (!estado.modelos.length) {
-    alvo.innerHTML = '<p class="vazio">Nenhum check-list ativo. Verifique a aba Modelos da planilha.</p>';
+    alvo.innerHTML = '<p class="vazio">Nenhum check-list disponível para você.</p>';
     return;
   }
+
+  const feitasHoje = estado.usuario ? await execucoesDeHoje() : [];
 
   estado.modelos.forEach(modelo => {
     const cartao = document.createElement('div');
     cartao.className = 'cartao-modelo';
-    cartao.innerHTML =
-      '<h3></h3><p></p><div class="turnos"></div>';
+    cartao.innerHTML = '<h3></h3><p></p><div class="turnos"></div>';
     cartao.querySelector('h3').textContent = modelo.nome;
     cartao.querySelector('p').textContent =
-      modelo.descricao + ' · ' + modelo.itens.length + ' verificações';
+      [modelo.setor, modelo.descricao].filter(Boolean).join(' · ') +
+      ' · ' + modelo.itens.length + ' verificações';
 
     const turnos = modelo.turnos.length ? modelo.turnos : ['ÚNICO'];
     const areaTurnos = cartao.querySelector('.turnos');
+
     turnos.forEach(turno => {
-      const botao = document.createElement('button');
-      botao.className = 'chip-turno';
-      botao.type = 'button';
-      botao.textContent = turno;
-      botao.addEventListener('click', () => iniciarExecucao(modelo, turno));
-      areaTurnos.appendChild(botao);
+      const bloqueio = bloqueioDoTurno(modelo, turno, feitasHoje);
+      areaTurnos.appendChild(montarChipTurno(modelo, turno, bloqueio));
     });
 
     alvo.appendChild(cartao);
   });
+}
+
+function montarChipTurno(modelo, turno, bloqueio) {
+  const botao = document.createElement('button');
+  botao.className = 'chip-turno';
+  botao.type = 'button';
+
+  if (!bloqueio) {
+    botao.textContent = turno;
+    botao.addEventListener('click', () => iniciarExecucao(modelo, turno));
+    return botao;
+  }
+
+  const quem = bloqueio.local ? 'você' : (bloqueio.nome || bloqueio.email);
+  const hora = bloqueio.fimEm ? formatarHora(new Date(bloqueio.fimEm)) : '';
+  botao.classList.add('feito');
+  botao.innerHTML = '<span class="chip-turno-nome"></span><span class="chip-turno-quem"></span>';
+  botao.querySelector('.chip-turno-nome').textContent = '✓ ' + turno;
+  botao.querySelector('.chip-turno-quem').textContent =
+    quem + (hora ? ' · ' + hora : '') + (bloqueio.local ? ' (a enviar)' : '');
+
+  // O ADMIN pode refazer — às vezes é necessário mesmo. Os demais só veem o aviso.
+  if (estado.usuario.perfil === 'ADMIN') {
+    botao.addEventListener('click', () => {
+      if (confirm('O turno ' + turno + ' já foi registrado por ' + quem +
+                  (hora ? ' às ' + hora : '') + '.\n\nFazer novamente?')) {
+        iniciarExecucao(modelo, turno);
+      }
+    });
+  } else {
+    botao.disabled = true;
+  }
+  return botao;
 }
 
 /* ==========================================================================
@@ -688,6 +757,7 @@ async function concluirExecucao() {
 
   mostrarToast('Check-list salvo no aparelho', 'sucesso');
   irPara('tela-inicio');
+  await renderizarModelos();   // o turno recém-feito já aparece bloqueado
   await atualizarPainel();
   sincronizar();
 }
@@ -725,7 +795,7 @@ function validarExecucao(execucao) {
 
 async function sincronizar(manual = false) {
   if (estado.sincronizando) return;
-  const fila = (await BD.listar('execucoes')).filter(e => e.status !== 'ENVIADA');
+  const fila = (await BD.listar('execucoes')).filter(e => ehPendente(e));
   if (!fila.length) { await atualizarPainel(); return; }
 
   if (!navigator.onLine) {
@@ -741,18 +811,29 @@ async function sincronizar(manual = false) {
   document.getElementById('btn-sincronizar').disabled = true;
 
   let enviadas = 0;
+  let recusadas = 0;
+
   for (const registro of fila) {
     try {
-      await chamarApi('sincronizar', {
+      const retorno = await chamarApi('sincronizar', {
         idToken: estado.token.valor,
         execucao: montarPayload(registro)
       });
-      // Guarda o comprovante sem as fotos: libera espaço no aparelho.
-      registro.status = 'ENVIADA';
-      registro.erro = '';
+
+      if (retorno.recusada) {
+        // Recusa é resposta definitiva: insistir só travaria a fila para sempre.
+        registro.status = 'RECUSADA';
+        registro.erro = retorno.motivo || 'Registro recusado pelo servidor.';
+        recusadas++;
+      } else {
+        registro.status = 'ENVIADA';
+        registro.erro = '';
+        enviadas++;
+      }
+
+      // Em qualquer um dos dois casos a foto não precisa mais ocupar o aparelho.
       registro.respostas.forEach(r => { r.foto = null; });
       await BD.salvar('execucoes', registro);
-      enviadas++;
     } catch (erro) {
       registro.erro = erro.message;
       await BD.salvar('execucoes', registro);
@@ -762,10 +843,16 @@ async function sincronizar(manual = false) {
 
   estado.sincronizando = false;
   document.getElementById('btn-sincronizar').disabled = false;
+  if (enviadas || recusadas) await carregarModelos().catch(() => {});
   await atualizarPainel();
 
-  if (enviadas) mostrarToast(enviadas + ' check-list(s) enviado(s)', 'sucesso');
-  else if (manual) mostrarToast('Não foi possível enviar agora.', 'falha');
+  if (recusadas) {
+    mostrarToast(recusadas + ' registro(s) recusado(s) — turno já registrado', 'falha');
+  } else if (enviadas) {
+    mostrarToast(enviadas + ' check-list(s) enviado(s)', 'sucesso');
+  } else if (manual) {
+    mostrarToast('Não foi possível enviar agora.', 'falha');
+  }
 }
 
 function montarPayload(registro) {
@@ -783,9 +870,14 @@ function montarPayload(registro) {
   };
 }
 
+/** Só PENDENTE volta para a fila. RECUSADA é definitivo, ENVIADA já foi. */
+function ehPendente(registro) {
+  return registro.status !== 'ENVIADA' && registro.status !== 'RECUSADA';
+}
+
 async function atualizarPainel() {
   const registros = await BD.listar('execucoes');
-  const pendentes = registros.filter(r => r.status !== 'ENVIADA');
+  const pendentes = registros.filter(ehPendente);
 
   const painel = document.getElementById('painel-sync');
   const titulo = document.getElementById('sync-titulo');
@@ -830,9 +922,16 @@ function renderizarHistorico(registros) {
     texto.appendChild(detalhe);
 
     const marca = document.createElement('span');
-    if (registro.status === 'ENVIADA') { marca.className = 'marca enviada'; marca.textContent = 'Enviado'; }
-    else if (registro.erro) { marca.className = 'marca erro'; marca.textContent = 'Erro'; }
-    else { marca.className = 'marca pendente'; marca.textContent = 'Pendente'; }
+    if (registro.status === 'ENVIADA') {
+      marca.className = 'marca enviada'; marca.textContent = 'Enviado';
+    } else if (registro.status === 'RECUSADA') {
+      marca.className = 'marca erro'; marca.textContent = 'Recusado';
+      detalhe.textContent += ' · ' + registro.erro;
+    } else if (registro.erro) {
+      marca.className = 'marca erro'; marca.textContent = 'Erro';
+    } else {
+      marca.className = 'marca pendente'; marca.textContent = 'Pendente';
+    }
 
     linha.appendChild(texto);
     linha.appendChild(marca);
@@ -990,7 +1089,8 @@ function abrirModelo(modelo) {
   adm.modeloEdicao = modelo
     ? JSON.parse(JSON.stringify(modelo))
     : { modeloId: '', nome: '', descricao: '', setor: '', frequencia: 'DIARIA',
-        turnos: ['MANHÃ'], responsaveis: 'TODOS', ativo: true, itens: [] };
+        turnos: ['MANHÃ'], horarios: [], repeticao: 'UM_POR_TURNO',
+        responsaveis: 'TODOS', ativo: true, itens: [] };
 
   const m = adm.modeloEdicao;
   document.getElementById('modelo-titulo').textContent = modelo ? m.nome : 'Novo check-list';
@@ -999,12 +1099,48 @@ function abrirModelo(modelo) {
   document.getElementById('modelo-setor').value = m.setor;
   document.getElementById('modelo-frequencia').value = m.frequencia || 'DIARIA';
   document.getElementById('modelo-turnos').value = m.turnos.join(',');
+  document.getElementById('modelo-repeticao').value = m.repeticao || 'LIVRE';
   document.getElementById('modelo-ativo').checked = m.ativo;
   document.getElementById('modelo-erro').classList.add('oculto');
 
+  renderizarHorarios();
   renderizarResponsaveis();
   renderizarItensAdm();
   irPara('tela-modelo');
+}
+
+/** Um campo de hora por turno, na mesma ordem em que os turnos foram escritos. */
+function renderizarHorarios() {
+  const alvo = document.getElementById('modelo-horarios');
+  const turnos = document.getElementById('modelo-turnos').value
+    .split(',').map(t => t.trim().toUpperCase()).filter(Boolean);
+
+  alvo.innerHTML = '';
+  if (!turnos.length) {
+    alvo.innerHTML = '<p class="vazio">Informe os turnos acima.</p>';
+    return;
+  }
+
+  turnos.forEach((turno, indice) => {
+    const linha = document.createElement('div');
+    linha.className = 'linha-horario';
+
+    const rotulo = document.createElement('span');
+    rotulo.textContent = turno;
+
+    const campo = document.createElement('input');
+    campo.type = 'time';
+    campo.className = 'campo';
+    campo.value = (adm.modeloEdicao.horarios || [])[indice] || '';
+    campo.addEventListener('input', () => {
+      const horarios = (adm.modeloEdicao.horarios || []).slice();
+      horarios[indice] = campo.value;
+      adm.modeloEdicao.horarios = horarios;
+    });
+
+    linha.append(rotulo, campo);
+    alvo.appendChild(linha);
+  });
 }
 
 /**
@@ -1102,6 +1238,8 @@ async function salvarModelo() {
   m.frequencia = document.getElementById('modelo-frequencia').value;
   m.turnos = document.getElementById('modelo-turnos').value
     .split(',').map(t => t.trim().toUpperCase()).filter(Boolean);
+  m.repeticao = document.getElementById('modelo-repeticao').value;
+  m.horarios = (m.horarios || []).slice(0, m.turnos.length);
   m.ativo = document.getElementById('modelo-ativo').checked;
 
   if (!m.nome) return mostrarErro(erro, 'Informe o nome do check-list.');
@@ -1124,6 +1262,8 @@ async function salvarModelo() {
       modelo: {
         modeloId: m.modeloId, nome: m.nome, descricao: m.descricao, setor: m.setor,
         frequencia: m.frequencia, turnos: m.turnos.join(','),
+        horarios: (m.horarios || []).map(h => h || '').join(','),
+        repeticao: m.repeticao,
         responsaveis: m.responsaveis, ativo: m.ativo
       }
     });
@@ -1315,6 +1455,287 @@ function mostrarErro(elemento, mensagem) {
 }
 
 /* ==========================================================================
+   8c. PAINEL DO DIA
+   ========================================================================== */
+
+async function abrirPainel() {
+  if (!navigator.onLine) return mostrarToast('O painel do dia precisa de internet.', 'falha');
+  if (!(await renovarToken())) return mostrarToast('Sessão expirada. Entre novamente.', 'falha');
+
+  try {
+    await carregarModelos();
+    document.getElementById('painel-data').textContent =
+      new Date().toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: '2-digit' });
+    renderizarPainelDoDia(await execucoesDeHoje());
+    irPara('tela-painel');
+  } catch (erro) {
+    mostrarToast(erro.message, 'falha');
+  }
+}
+
+function renderizarPainelDoDia(feitasHoje) {
+  const linhas = [];
+  const agora = formatarHora(new Date());
+
+  estado.modelos.forEach(modelo => {
+    (modelo.turnos.length ? modelo.turnos : ['ÚNICO']).forEach((turno, indice) => {
+      const feita = feitasHoje.find(e => e.modeloId === modelo.modeloId && e.turno === turno);
+      const limite = (modelo.horarios || [])[indice] || '';
+      linhas.push({
+        modelo: modelo.nome,
+        setor: modelo.setor,
+        turno: turno,
+        limite: limite,
+        feita: feita || null,
+        atrasada: !feita && limite && agora > limite
+      });
+    });
+  });
+
+  const feitas = linhas.filter(l => l.feita).length;
+  const atrasadas = linhas.filter(l => l.atrasada).length;
+
+  document.getElementById('painel-numeros').innerHTML = '';
+  document.getElementById('painel-numeros').append(
+    cartaoNumero('Realizados', feitas + ' de ' + linhas.length, 'bom'),
+    cartaoNumero('Pendentes', String(linhas.length - feitas), linhas.length - feitas ? 'atencao' : 'bom'),
+    cartaoNumero('Atrasados', String(atrasadas), atrasadas ? 'ruim' : 'bom')
+  );
+
+  const alvo = document.getElementById('painel-lista');
+  alvo.innerHTML = '';
+  if (!linhas.length) {
+    alvo.innerHTML = '<p class="vazio">Nenhum check-list ativo.</p>';
+    return;
+  }
+
+  // Atrasados no topo, depois pendentes, e o que já foi feito por último —
+  // a ordem da lista é a ordem de quem precisa de atenção.
+  const prioridade = l => l.atrasada ? 0 : (l.feita ? 2 : 1);
+  linhas.sort((a, b) => prioridade(a) - prioridade(b));
+
+  linhas.forEach(linha => {
+    const detalhe = linha.feita
+      ? (linha.feita.nome || linha.feita.email) +
+        (linha.feita.fimEm ? ' · ' + formatarHora(new Date(linha.feita.fimEm)) : '') +
+        (linha.feita.naoConformidades ? ' · ' + linha.feita.naoConformidades + ' não conf.' : '')
+      : (linha.limite ? 'Limite ' + linha.limite : 'Sem horário limite');
+
+    const marca = linha.feita
+      ? (linha.feita.naoConformidades ? 'Não conforme' : 'Feito')
+      : (linha.atrasada ? 'Atrasado' : 'Pendente');
+
+    const classe = linha.feita
+      ? (linha.feita.naoConformidades ? 'erro' : 'enviada')
+      : (linha.atrasada ? 'erro' : 'pendente');
+
+    alvo.appendChild(criarRegistro(
+      linha.modelo + ' · ' + linha.turno,
+      [linha.setor, detalhe].filter(Boolean).join(' · '),
+      marca, classe));
+  });
+}
+
+/* ==========================================================================
+   8d. INDICADORES
+   ========================================================================== */
+
+async function abrirDashboard(dias) {
+  if (!navigator.onLine) return mostrarToast('Os indicadores precisam de internet.', 'falha');
+  if (!(await renovarToken())) return mostrarToast('Sessão expirada. Entre novamente.', 'falha');
+
+  irPara('tela-dashboard');
+  document.getElementById('dash-carregando').classList.remove('oculto');
+  document.getElementById('dash-conteudo').classList.add('oculto');
+
+  try {
+    const resumo = await chamarApi('admResumo', { idToken: estado.token.valor, dias: dias });
+    renderizarDashboard(resumo);
+    document.getElementById('dash-carregando').classList.add('oculto');
+    document.getElementById('dash-conteudo').classList.remove('oculto');
+  } catch (erro) {
+    document.getElementById('dash-carregando').textContent = erro.message;
+  }
+}
+
+function renderizarDashboard(resumo) {
+  const g = resumo.geral;
+  document.getElementById('dash-periodo-rotulo').textContent = 'Últimos ' + resumo.dias + ' dias';
+
+  const numeros = document.getElementById('dash-numeros');
+  numeros.innerHTML = '';
+  numeros.append(
+    cartaoNumero('Conformidade', g.percentualConformidade + '%',
+      g.percentualConformidade >= 95 ? 'bom' : g.percentualConformidade >= 85 ? 'atencao' : 'ruim'),
+    cartaoNumero('Check-lists', String(g.execucoes)),
+    cartaoNumero('Não conformes', String(g.naoConformes), g.naoConformes ? 'atencao' : 'bom'),
+    cartaoNumero('Duração média', g.duracaoMediaMin + ' min'),
+    cartaoNumero('Pontualidade',
+      g.pontualidade.percentual === null ? '—' : g.pontualidade.percentual + '%',
+      g.pontualidade.percentual === null ? '' :
+        g.pontualidade.percentual >= 90 ? 'bom' : 'atencao'),
+    cartaoNumero('Preenchidos em < 1 min', String(g.execucoesRelampago),
+      g.execucoesRelampago ? 'ruim' : 'bom')
+  );
+
+  // Séries numéricas
+  const seletor = document.getElementById('dash-serie-seletor');
+  seletor.innerHTML = '';
+  resumo.series.forEach((serie, indice) => {
+    const opcao = document.createElement('option');
+    opcao.value = String(indice);
+    opcao.textContent = serie.rotulo;
+    seletor.appendChild(opcao);
+  });
+  seletor.classList.toggle('oculto', !resumo.series.length);
+  seletor.onchange = () => desenharSerie(resumo.series[Number(seletor.value)]);
+  desenharSerie(resumo.series[0]);
+
+  desenharBarras('dash-aderencia', resumo.aderencia.map(a => ({
+    rotulo: a.nome,
+    valor: a.percentual,
+    texto: a.realizado + '/' + a.esperado + ' · ' + a.percentual + '%',
+    estado: a.percentual >= 95 ? 'bom' : a.percentual >= 70 ? 'atencao' : 'ruim'
+  })), 100);
+
+  const maiorLocal = Math.max(1, ...resumo.naoConformidadesPorLocal.map(n => n.total));
+  desenharBarras('dash-nc-local', resumo.naoConformidadesPorLocal.map(n => ({
+    rotulo: n.rotulo, valor: n.total, texto: String(n.total), estado: 'ruim'
+  })), maiorLocal);
+
+  const maiorItem = Math.max(1, ...resumo.reincidencia.map(n => n.total));
+  desenharBarras('dash-reincidencia', resumo.reincidencia.map(n => ({
+    rotulo: n.rotulo, valor: n.total, texto: String(n.total), estado: 'ruim'
+  })), maiorItem);
+
+  const operadores = document.getElementById('dash-operadores');
+  operadores.innerHTML = '';
+  if (!resumo.operadores.length) {
+    operadores.innerHTML = '<p class="vazio">Sem registros no período.</p>';
+  }
+  resumo.operadores.forEach(o => {
+    operadores.appendChild(criarRegistro(
+      o.nome,
+      o.execucoes + ' check-list(s) · ' + o.naoConformidades + ' não conformidade(s)',
+      String(o.execucoes), 'ativa'));
+  });
+}
+
+/** Gráfico de barras horizontais — legível no celular, sem biblioteca externa. */
+function desenharBarras(idAlvo, dados, maximo) {
+  const alvo = document.getElementById(idAlvo);
+  alvo.innerHTML = '';
+
+  if (!dados.length) {
+    alvo.innerHTML = '<p class="vazio">Sem dados no período.</p>';
+    return;
+  }
+
+  dados.forEach(dado => {
+    const linha = document.createElement('div');
+    linha.className = 'barra-linha';
+
+    const topo = document.createElement('div');
+    topo.className = 'barra-topo';
+    const rotulo = document.createElement('span');
+    rotulo.textContent = dado.rotulo;
+    const texto = document.createElement('strong');
+    texto.textContent = dado.texto;
+    topo.append(rotulo, texto);
+
+    const trilho = document.createElement('div');
+    trilho.className = 'barra-trilho';
+    const preenchida = document.createElement('div');
+    preenchida.className = 'barra ' + (dado.estado || '');
+    preenchida.style.width = Math.min(100, dado.valor / maximo * 100) + '%';
+    trilho.appendChild(preenchida);
+
+    linha.append(topo, trilho);
+    alvo.appendChild(linha);
+  });
+}
+
+/**
+ * Série temporal em SVG puro. A faixa aceitável entra como uma banda de fundo:
+ * é o que faz o gráfico responder "está dentro do padrão?" sem ler eixo.
+ */
+function desenharSerie(serie) {
+  const alvo = document.getElementById('dash-serie');
+  alvo.innerHTML = '';
+  if (!serie || !serie.pontos.length) {
+    alvo.innerHTML = '<p class="vazio">Nenhuma medição com faixa definida no período.</p>';
+    return;
+  }
+
+  const larg = 640, alt = 240, margem = { topo: 16, dir: 12, baixo: 34, esq: 46 };
+  const areaL = larg - margem.esq - margem.dir;
+  const areaA = alt - margem.topo - margem.baixo;
+
+  const valores = serie.pontos.map(p => p.media)
+    .concat(serie.faixaMinima !== null ? [serie.faixaMinima] : [])
+    .concat(serie.faixaMaxima !== null ? [serie.faixaMaxima] : []);
+  let min = Math.min(...valores), max = Math.max(...valores);
+  const folga = (max - min) * 0.15 || 1;
+  min -= folga; max += folga;
+
+  const x = i => margem.esq + (serie.pontos.length === 1
+    ? areaL / 2
+    : i / (serie.pontos.length - 1) * areaL);
+  const y = v => margem.topo + areaA - (v - min) / (max - min) * areaA;
+
+  const partes = [];
+
+  if (serie.faixaMinima !== null && serie.faixaMaxima !== null) {
+    const topo = y(serie.faixaMaxima);
+    partes.push('<rect x="' + margem.esq + '" y="' + topo + '" width="' + areaL +
+      '" height="' + (y(serie.faixaMinima) - topo) + '" class="faixa-ok"/>');
+  }
+
+  partes.push('<line x1="' + margem.esq + '" y1="' + (margem.topo + areaA) +
+    '" x2="' + (larg - margem.dir) + '" y2="' + (margem.topo + areaA) + '" class="eixo"/>');
+
+  [min + folga, max - folga].forEach(valor => {
+    partes.push('<text x="' + (margem.esq - 8) + '" y="' + (y(valor) + 4) +
+      '" class="eixo-texto" text-anchor="end">' + Math.round(valor * 10) / 10 + '</text>');
+  });
+
+  const caminho = serie.pontos.map((p, i) => (i ? 'L' : 'M') + x(i) + ' ' + y(p.media)).join(' ');
+  partes.push('<path d="' + caminho + '" class="linha-serie"/>');
+
+  serie.pontos.forEach((p, i) => {
+    const fora = (serie.faixaMinima !== null && p.media < serie.faixaMinima) ||
+                 (serie.faixaMaxima !== null && p.media > serie.faixaMaxima);
+    partes.push('<circle cx="' + x(i) + '" cy="' + y(p.media) + '" r="4" class="ponto' +
+      (fora ? ' fora' : '') + '"><title>' + p.dia + ': ' + p.media + ' ' +
+      serie.unidade + ' (' + p.leituras + ' leituras)</title></circle>');
+  });
+
+  [0, serie.pontos.length - 1].forEach(i => {
+    if (i < 0) return;
+    partes.push('<text x="' + x(i) + '" y="' + (alt - 10) + '" class="eixo-texto" text-anchor="' +
+      (i === 0 ? 'start' : 'end') + '">' + serie.pontos[i].dia.slice(5).split('-').reverse().join('/') +
+      '</text>');
+  });
+
+  alvo.innerHTML = '<svg viewBox="0 0 ' + larg + ' ' + alt + '" class="svg-serie" ' +
+    'role="img" aria-label="Medições de ' + serie.rotulo + '">' + partes.join('') + '</svg>' +
+    '<p class="dica">Faixa aceitável: ' +
+    (serie.faixaMinima !== null ? serie.faixaMinima : '—') + ' a ' +
+    (serie.faixaMaxima !== null ? serie.faixaMaxima : '—') + ' ' + serie.unidade + '</p>';
+}
+
+function cartaoNumero(rotulo, valor, estadoCor) {
+  const cartao = document.createElement('div');
+  cartao.className = 'cartao-numero ' + (estadoCor || '');
+  const forte = document.createElement('strong');
+  forte.textContent = valor;
+  const span = document.createElement('span');
+  span.textContent = rotulo;
+  cartao.append(forte, span);
+  return cartao;
+}
+
+/* ==========================================================================
    9. NAVEGAÇÃO E UTILITÁRIOS
    ========================================================================== */
 
@@ -1326,8 +1747,8 @@ function irPara(idTela) {
   if (idTela === 'tela-inicio' && estado.usuario) {
     document.getElementById('cabecalho-usuario').textContent =
       estado.usuario.nome + (estado.usuario.perfil === 'ADMIN' ? ' · admin' : '');
-    // O botão some para quem não é ADMIN, mas quem protege é o servidor.
-    document.getElementById('btn-admin')
+    // Os botões somem para quem não é ADMIN, mas quem protege é o servidor.
+    document.getElementById('area-admin')
       .classList.toggle('oculto', estado.usuario.perfil !== 'ADMIN');
   }
 }
@@ -1366,6 +1787,12 @@ function formatarData(data) {
   });
 }
 
+/** HH:MM em 24h — no mesmo formato do horário limite, para poder comparar. */
+function formatarHora(data) {
+  return String(data.getHours()).padStart(2, '0') + ':' +
+         String(data.getMinutes()).padStart(2, '0');
+}
+
 function atualizarFaixaConexao() {
   document.getElementById('faixa-conexao').classList.toggle('oculto', navigator.onLine);
 }
@@ -1386,6 +1813,10 @@ async function iniciar() {
   estado.usuario = await BD.obter('usuario');
   estado.token = await BD.obter('token');
   estado.modelos = (await BD.obter('modelos')) || [];
+
+  // O que foi feito hoje só vale se o cache for de hoje mesmo.
+  const hojeEmCache = await BD.obter('hoje');
+  estado.hoje = (hojeEmCache && hojeEmCache.data === dataDeHoje()) ? hojeEmCache.execucoes : [];
 
   document.getElementById('btn-sincronizar').addEventListener('click', () => sincronizar(true));
   document.getElementById('btn-sair').addEventListener('click', sair);
@@ -1416,6 +1847,22 @@ async function iniciar() {
   document.getElementById('btn-item-voltar').addEventListener('click', () => irPara('tela-modelo'));
   document.getElementById('btn-salvar-item').addEventListener('click', salvarItem);
   document.getElementById('item-tipo').addEventListener('change', alternarCamposDoTipo);
+  document.getElementById('modelo-turnos').addEventListener('input', renderizarHorarios);
+
+  // --- painel do dia e indicadores ---
+  document.getElementById('btn-painel').addEventListener('click', abrirPainel);
+  document.getElementById('btn-painel-voltar').addEventListener('click', () => irPara('tela-inicio'));
+  document.getElementById('btn-painel-atualizar').addEventListener('click', abrirPainel);
+
+  document.getElementById('btn-dashboard').addEventListener('click', () => abrirDashboard(30));
+  document.getElementById('btn-dash-voltar').addEventListener('click', () => irPara('tela-inicio'));
+  document.querySelectorAll('.aba-periodo').forEach(aba => {
+    aba.addEventListener('click', () => {
+      document.querySelectorAll('.aba-periodo').forEach(a => a.classList.remove('ativa'));
+      aba.classList.add('ativa');
+      abrirDashboard(Number(aba.dataset.dias));
+    });
+  });
 
   window.addEventListener('online', () => { atualizarFaixaConexao(); sincronizar(); });
   window.addEventListener('offline', atualizarFaixaConexao);
@@ -1427,7 +1874,7 @@ async function iniciar() {
 
   // Sessão já existente: entra direto, mesmo sem rede.
   if (estado.usuario) {
-    renderizarModelos();
+    await renderizarModelos();
     irPara('tela-inicio');
     await atualizarPainel();
     if (navigator.onLine) {

@@ -24,7 +24,7 @@
       <div id="botao-google" class="botao-google"></div>
       <p id="login-aviso" class="aviso oculto"></p>
 
-      <p class="rodape-versao"><span id="rotulo-versao">vs.2026.08.20.0007</span></p>
+      <p class="rodape-versao"><span id="rotulo-versao">vs.2026.08.21.0009</span></p>
     </div>
   </section>
 
@@ -50,7 +50,11 @@
       <h2 class="secao-titulo">Check-lists disponíveis</h2>
       <div id="lista-modelos" class="lista-modelos"></div>
 
-      <button id="btn-admin" class="botao secundario oculto">Administração</button>
+      <div id="area-admin" class="area-admin oculto">
+        <button id="btn-painel" class="botao secundario">Painel do dia</button>
+        <button id="btn-dashboard" class="botao secundario">Indicadores</button>
+        <button id="btn-admin" class="botao secundario">Administração</button>
+      </div>
 
       <h2 class="secao-titulo">Últimos registros neste aparelho</h2>
       <div id="lista-historico" class="lista-historico"></div>
@@ -178,6 +182,18 @@
       <input id="modelo-turnos" class="campo" type="text" placeholder="MANHÃ,TARDE">
       <p class="dica">Separe por vírgula. Cada turno vira um botão na tela do operador.</p>
 
+      <label class="rotulo">Horário limite de cada turno</label>
+      <div id="modelo-horarios" class="lista-horarios"></div>
+      <p class="dica">Opcional. Serve para o painel do dia marcar o que passou da hora
+        e não foi feito.</p>
+
+      <label class="rotulo" for="modelo-repeticao">Regra de repetição</label>
+      <select id="modelo-repeticao" class="campo">
+        <option value="LIVRE">Livre — pode ser feito quantas vezes for preciso</option>
+        <option value="UM_POR_TURNO">Um por turno — o primeiro que fizer fecha para todos</option>
+        <option value="UM_POR_PESSOA_TURNO">Um por pessoa e turno — cada um faz o seu</option>
+      </select>
+
       <label class="rotulo">Quem executa</label>
       <div id="modelo-responsaveis" class="lista-marcaveis"></div>
       <p class="dica">Marque pessoas para restringir. Sem ninguém marcado, o check-list
@@ -280,6 +296,64 @@
 
       <p id="item-erro" class="erro oculto"></p>
       <button id="btn-salvar-item" class="botao grande">Salvar pergunta</button>
+    </main>
+  </section>
+
+  <!-- ===================== PAINEL DO DIA ===================== -->
+  <section id="tela-painel" class="tela">
+    <header class="cabecalho">
+      <button id="btn-painel-voltar" class="botao-icone" aria-label="Voltar">Voltar</button>
+      <div>
+        <span class="cabecalho-titulo">Painel do dia</span>
+        <span id="painel-data" class="cabecalho-sub"></span>
+      </div>
+      <button id="btn-painel-atualizar" class="botao-icone" aria-label="Atualizar">Atualizar</button>
+    </header>
+
+    <main class="conteudo">
+      <div id="painel-numeros" class="cartoes-numeros"></div>
+      <div id="painel-lista" class="lista-registros"></div>
+    </main>
+  </section>
+
+  <!-- ===================== INDICADORES ===================== -->
+  <section id="tela-dashboard" class="tela">
+    <header class="cabecalho">
+      <button id="btn-dash-voltar" class="botao-icone" aria-label="Voltar">Voltar</button>
+      <div>
+        <span class="cabecalho-titulo">Indicadores</span>
+        <span id="dash-periodo-rotulo" class="cabecalho-sub"></span>
+      </div>
+      <span></span>
+    </header>
+
+    <nav class="abas">
+      <button class="aba-periodo" data-dias="7" type="button">7 dias</button>
+      <button class="aba-periodo ativa" data-dias="30" type="button">30 dias</button>
+      <button class="aba-periodo" data-dias="90" type="button">90 dias</button>
+    </nav>
+
+    <main class="conteudo">
+      <div id="dash-carregando" class="vazio">Calculando...</div>
+      <div id="dash-conteudo" class="oculto">
+        <div id="dash-numeros" class="cartoes-numeros"></div>
+
+        <h2 class="secao-titulo">Medições ao longo dos dias</h2>
+        <select id="dash-serie-seletor" class="campo"></select>
+        <div id="dash-serie" class="grafico"></div>
+
+        <h2 class="secao-titulo">Aderência à rotina</h2>
+        <div id="dash-aderencia"></div>
+
+        <h2 class="secao-titulo">Não conformidades por área</h2>
+        <div id="dash-nc-local"></div>
+
+        <h2 class="secao-titulo">Verificações que mais reprovam</h2>
+        <div id="dash-reincidencia"></div>
+
+        <h2 class="secao-titulo">Por operador</h2>
+        <div id="dash-operadores" class="lista-registros"></div>
+      </div>
     </main>
   </section>
 
