@@ -2335,6 +2335,28 @@ function formatarHora(data) {
          String(data.getMinutes()).padStart(2, '0');
 }
 
+/**
+ * Registra o Service Worker e recarrega a página assim que uma versão nova
+ * assume o controle.
+ *
+ * Sem esse recarregamento, a primeira abertura depois de uma atualização pode
+ * misturar arquivos de gerações diferentes — index.html novo com app.js antigo,
+ * por exemplo — e o app quebra na inicialização. O reload garante que tudo venha
+ * da mesma geração.
+ */
+function registrarServiceWorker() {
+  if (!('serviceWorker' in navigator)) return;
+
+  let recarregando = false;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (recarregando) return;   // o evento pode disparar mais de uma vez
+    recarregando = true;
+    location.reload();
+  });
+
+  navigator.serviceWorker.register('sw.js').catch(() => { /* app funciona sem SW */ });
+}
+
 function atualizarFaixaConexao() {
   document.getElementById('faixa-conexao').classList.toggle('oculto', navigator.onLine);
 }
@@ -2413,9 +2435,7 @@ async function iniciar() {
   window.addEventListener('offline', atualizarFaixaConexao);
   atualizarFaixaConexao();
 
-  if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('sw.js').catch(() => { /* app funciona sem SW */ });
-  }
+  registrarServiceWorker();
 
   // Sessão já existente: entra direto, mesmo sem rede.
   if (estado.usuario) {
