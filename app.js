@@ -366,8 +366,6 @@ function iniciarExecucao(modelo, turno, rascunho) {
   document.getElementById('assinatura-nome').value = estado.usuario.nome;
   document.getElementById('assinatura-ok').checked = false;
   document.getElementById('execucao-erro').classList.add('oculto');
-  document.getElementById('justificativa').value = '';
-
   renderizarItens(modelo);
   if (rascunho) aplicarRespostasSalvas(modelo, rascunho.respostas || []);
   atualizarAcoes();
@@ -817,11 +815,9 @@ function atualizarAcoes() {
   const permite = execucao.modelo.permiteRascunho;
   const botaoConcluir = document.getElementById('btn-concluir');
   const botaoAberto = document.getElementById('btn-salvar-aberto');
-  const caixaIncompleto = document.getElementById('bloco-incompleto');
 
   botaoAberto.classList.toggle('oculto', !permite);
   botaoConcluir.classList.toggle('oculto', permite && faltando > 0);
-  caixaIncompleto.classList.toggle('oculto', !(permite && faltando > 0));
 
   // Com tudo respondido, concluir é a ação principal; salvar em aberto vira secundário.
   botaoAberto.classList.toggle('grande', permite && faltando > 0);
@@ -879,46 +875,32 @@ function descreverFaixa(item) {
    6. CONCLUSÃO E FILA OFFLINE
    ========================================================================== */
 
-async function concluirExecucao(incompleta) {
+/**
+ * Concluir exige o preenchimento completo, sem exceção — não existe encerrar
+ * pela metade. Faltando resposta, o único caminho é salvar e continuar depois.
+ */
+async function concluirExecucao() {
   const execucao = estado.execucaoAtual;
   const areaErro = document.getElementById('execucao-erro');
 
-  if (!incompleta) {
-    const problema = validarExecucao(execucao);
-    if (problema) {
-      areaErro.textContent = problema.mensagem;
-      areaErro.classList.remove('oculto');
-      const alvo = problema.itemId
-        ? document.querySelector('[data-item-id="' + problema.itemId + '"]')
-        : null;
-      if (alvo) alvo.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      return;
-    }
-  } else {
-    const problema = validarExecucao(execucao, true);
-    if (problema) {
-      areaErro.textContent = problema.mensagem;
-      areaErro.classList.remove('oculto');
-      return;
-    }
-    if (!document.getElementById('justificativa').value.trim()) {
-      areaErro.textContent = 'Escreva o motivo de encerrar sem todas as respostas.';
-      areaErro.classList.remove('oculto');
-      return;
-    }
+  const problema = validarExecucao(execucao);
+  if (problema) {
+    areaErro.textContent = problema.mensagem;
+    areaErro.classList.remove('oculto');
+    const alvo = problema.itemId
+      ? document.querySelector('[data-item-id="' + problema.itemId + '"]')
+      : null;
+    if (alvo) alvo.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    return;
   }
   areaErro.classList.add('oculto');
 
-  const registro = montarRegistro(execucao, {
-    incompleta: !!incompleta,
-    justificativa: document.getElementById('justificativa').value.trim(),
-    fimEm: new Date().toISOString()
-  });
+  const registro = montarRegistro(execucao, { fimEm: new Date().toISOString() });
 
   await BD.salvar('execucoes', registro);
   estado.execucaoAtual = null;
 
-  mostrarToast(incompleta ? 'Encerrado como incompleto' : 'Check-list salvo no aparelho', 'sucesso');
+  mostrarToast('Check-list salvo no aparelho', 'sucesso');
   irPara('tela-inicio');
   await renderizarModelos();   // o turno recém-feito já aparece bloqueado
   await atualizarPainel();
@@ -1082,7 +1064,7 @@ function validarExecucao(execucao, parcial) {
 
     if (!parcial && item.obrigatorio && !respondida) {
       return { mensagem: 'Responda: ' + item.pergunta + ondeEsta,
-               itemId: item.itemId, emBranco: true };
+               itemId: item.itemId };
     }
     if (respondida && !avaliarConformidadeLocal(item, resposta.valor)
         && !String(resposta.acaoCorretiva).trim()) {
@@ -1094,7 +1076,7 @@ function validarExecucao(execucao, parcial) {
     }
     if (exigeFoto(item) && !parcial && !resposta.foto && !resposta.fotoUrl) {
       return { mensagem: 'Falta a foto de: ' + item.pergunta + ondeEsta,
-               itemId: item.itemId, emBranco: true };
+               itemId: item.itemId };
     }
   }
 
@@ -1186,8 +1168,6 @@ function montarPayload(registro) {
     fimEm: registro.fimEm,
     assinaturaNome: registro.assinaturaNome,
     assinaturaEm: registro.assinaturaEm,
-    incompleta: !!registro.incompleta,
-    justificativa: registro.justificativa || '',
     respostas: registro.respostas
   };
 }
@@ -2388,9 +2368,8 @@ async function iniciar() {
       irPara('tela-inicio');
     }
   });
-  document.getElementById('btn-concluir').addEventListener('click', () => concluirExecucao(false));
+  document.getElementById('btn-concluir').addEventListener('click', concluirExecucao);
   document.getElementById('btn-salvar-aberto').addEventListener('click', salvarEmAberto);
-  document.getElementById('btn-encerrar-incompleto').addEventListener('click', () => concluirExecucao(true));
 
   // --- administração ---
   document.getElementById('btn-admin').addEventListener('click', abrirAdmin);

@@ -4,7 +4,7 @@
  * Passo a passo: ../03_Documentacao/PASSO_A_PASSO.md
  */
 window.CONFIG_CHECKLIST = {
-  APP_VERSION: 'vs.2026.08.21.0012',
+  APP_VERSION: 'vs.2026.08.21.0013',
 
   // 1) OAuth Client ID criado no Google Cloud Console (tipo "Aplicativo Web").
   //    Origem JavaScript autorizada: https://aguiarluca.github.io
