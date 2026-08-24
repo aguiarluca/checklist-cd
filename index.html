@@ -24,7 +24,7 @@
       <div id="botao-google" class="botao-google"></div>
       <p id="login-aviso" class="aviso oculto"></p>
 
-      <p class="rodape-versao"><span id="rotulo-versao">vs.2026.08.21.0014</span></p>
+      <p class="rodape-versao"><span id="rotulo-versao">vs.2026.08.21.0016</span></p>
     </div>
   </section>
 
@@ -382,6 +382,26 @@
     </main>
   </section>
 
+  <!-- ===================== HISTÓRICO DO OPERADOR ===================== -->
+  <section id="tela-historico" class="tela">
+    <header class="cabecalho">
+      <button id="btn-historico-voltar" class="botao-icone" aria-label="Voltar">Voltar</button>
+      <div>
+        <span id="historico-titulo" class="cabecalho-titulo">Histórico</span>
+        <span id="historico-sub" class="cabecalho-sub"></span>
+      </div>
+      <span></span>
+    </header>
+
+    <main class="conteudo">
+      <div id="historico-carregando" class="vazio">Carregando...</div>
+      <div id="historico-conteudo" class="oculto">
+        <div id="historico-numeros" class="cartoes-numeros"></div>
+        <div id="historico-lista" class="lista-registros"></div>
+      </div>
+    </main>
+  </section>
+
   <!-- ===================== DETALHE DO REGISTRO ===================== -->
   <section id="tela-detalhe" class="tela">
     <header class="cabecalho">
@@ -399,6 +419,8 @@
         <div id="detalhe-numeros" class="cartoes-numeros"></div>
         <div id="detalhe-ficha" class="ficha"></div>
         <div id="detalhe-justificativa" class="atencao-caixa oculto"></div>
+        <div id="detalhe-edicoes" class="atencao-caixa oculto"></div>
+        <button id="btn-editar-registro" class="botao secundario oculto">Corrigir respostas</button>
         <h2 class="secao-titulo">Respostas</h2>
         <div id="detalhe-respostas"></div>
       </div>

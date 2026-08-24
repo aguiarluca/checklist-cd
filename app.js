@@ -812,10 +812,19 @@ function atualizarAcoes() {
     return item.obrigatorio ? (!respondida || !fotoOk) : (exigeFoto(item) && !fotoOk);
   }).length;
 
-  const permite = execucao.modelo.permiteRascunho;
   const botaoConcluir = document.getElementById('btn-concluir');
   const botaoAberto = document.getElementById('btn-salvar-aberto');
 
+  // Correção não é rascunho: o registro já existe e só pode voltar completo.
+  if (execucao.modoCorrecao) {
+    botaoAberto.classList.add('oculto');
+    botaoConcluir.classList.remove('oculto');
+    botaoConcluir.textContent = 'Salvar correção';
+    return;
+  }
+  botaoConcluir.textContent = 'Concluir check-list';
+
+  const permite = execucao.modelo.permiteRascunho;
   botaoAberto.classList.toggle('oculto', !permite);
   botaoConcluir.classList.toggle('oculto', permite && faltando > 0);
 
@@ -895,6 +904,8 @@ async function concluirExecucao() {
   }
   areaErro.classList.add('oculto');
 
+  if (execucao.modoCorrecao) return gravarCorrecao(execucao);
+
   const registro = montarRegistro(execucao, { fimEm: new Date().toISOString() });
 
   await BD.salvar('execucoes', registro);
@@ -905,6 +916,48 @@ async function concluirExecucao() {
   await renderizarModelos();   // o turno recém-feito já aparece bloqueado
   await atualizarPainel();
   sincronizar();
+}
+
+/**
+ * A correção vai direto ao servidor, não para a fila offline: ela altera um
+ * registro que já está lá, e a fila só sabe criar.
+ */
+async function gravarCorrecao(execucao) {
+  const areaErro = document.getElementById('execucao-erro');
+  const botao = document.getElementById('btn-concluir');
+
+  if (!navigator.onLine) {
+    areaErro.textContent = 'Corrigir precisa de internet.';
+    areaErro.classList.remove('oculto');
+    return;
+  }
+
+  botao.disabled = true;
+  botao.textContent = 'Salvando correção...';
+
+  try {
+    if (!(await renovarToken())) throw new Error('Sessão expirada. Entre novamente.');
+
+    const registro = montarRegistro(execucao, { fimEm: new Date().toISOString() });
+    const retorno = await chamarApi('editar', {
+      idToken: estado.token.valor,
+      execucao: montarPayload(registro)
+    });
+
+    mostrarToast(retorno.semAlteracao ? 'Nada foi alterado'
+      : retorno.alteracoes + ' resposta(s) corrigida(s)', 'sucesso');
+
+    estado.execucaoAtual = null;
+    irPara('tela-inicio');
+    await carregarModelos();
+    await atualizarPainel();
+  } catch (erro) {
+    areaErro.textContent = erro.message;
+    areaErro.classList.remove('oculto');
+  } finally {
+    botao.disabled = false;
+    botao.textContent = 'Concluir check-list';
+  }
 }
 
 function montarRegistro(execucao, extras) {
@@ -1237,6 +1290,15 @@ function renderizarHistorico(registros) {
 
     linha.appendChild(texto);
     linha.appendChild(marca);
+
+    // Tocar num registro já enviado abre a ficha — é por aqui que o operador
+    // chega na correção do próprio check-list.
+    if (registro.status === 'ENVIADA') {
+      linha.classList.add('clicavel');
+      linha.addEventListener('click',
+        () => abrirDetalhe(registro.execucaoId, registro.modeloNome, 'tela-inicio'));
+    }
+
     alvo.appendChild(linha);
   });
 }
@@ -1899,7 +1961,74 @@ function renderizarPainelDoDia(feitasHoje) {
    8c-b. DETALHE DE UM REGISTRO
    ========================================================================== */
 
-async function abrirDetalhe(execucaoId, titulo) {
+/* ---------- histórico de um operador ---------- */
+
+async function abrirHistorico(operador) {
+  if (!navigator.onLine) return mostrarToast('O histórico precisa de internet.', 'falha');
+  if (!(await renovarToken())) return mostrarToast('Sessão expirada. Entre novamente.', 'falha');
+
+  document.getElementById('historico-titulo').textContent = operador.nome;
+  document.getElementById('historico-sub').textContent = '';
+  document.getElementById('historico-carregando').classList.remove('oculto');
+  document.getElementById('historico-carregando').textContent = 'Carregando...';
+  document.getElementById('historico-conteudo').classList.add('oculto');
+  irPara('tela-historico');
+
+  try {
+    const retorno = await chamarApi('admHistorico', {
+      idToken: estado.token.valor, email: operador.email, dias: adm.diasDashboard || 30
+    });
+    renderizarHistoricoOperador(retorno);
+    document.getElementById('historico-carregando').classList.add('oculto');
+    document.getElementById('historico-conteudo').classList.remove('oculto');
+  } catch (erro) {
+    document.getElementById('historico-carregando').textContent = erro.message;
+  }
+}
+
+function renderizarHistoricoOperador(dados) {
+  document.getElementById('historico-titulo').textContent = dados.operador.nome;
+  document.getElementById('historico-sub').textContent = 'Últimos ' + dados.dias + ' dias';
+
+  const numeros = document.getElementById('historico-numeros');
+  numeros.innerHTML = '';
+  numeros.append(
+    cartaoNumero('Total', String(dados.resumo.total)),
+    cartaoNumero('Concluídos', String(dados.resumo.concluidas), 'bom'),
+    cartaoNumero('Em aberto', String(dados.resumo.emAberto),
+      dados.resumo.emAberto ? 'atencao' : 'bom'),
+    cartaoNumero('Com não conformidade', String(dados.resumo.naoConformes),
+      dados.resumo.naoConformes ? 'ruim' : 'bom')
+  );
+
+  const alvo = document.getElementById('historico-lista');
+  alvo.innerHTML = '';
+
+  if (!dados.execucoes.length) {
+    alvo.innerHTML = '<p class="vazio">Nenhum check-list no período.</p>';
+    return;
+  }
+
+  dados.execucoes.forEach(e => {
+    const quando = e.data.split('-').reverse().join('/') +
+      (e.fimEm ? ' · ' + formatarHora(new Date(e.fimEm)) : '');
+    const detalhe = [e.turno, quando,
+      e.naoConformidades ? e.naoConformidades + ' não conf.' : ''].filter(Boolean).join(' · ');
+
+    const marca = e.status === 'EM_ANDAMENTO' ? 'Em aberto'
+                : e.status === 'INCOMPLETA' ? 'Incompleto'
+                : e.naoConformidades ? 'Não conforme' : 'Concluído';
+    const classe = e.status === 'EM_ANDAMENTO' ? 'pendente'
+                 : (e.status === 'INCOMPLETA' || e.naoConformidades) ? 'erro' : 'enviada';
+
+    const linha = criarRegistro(e.modeloNome, detalhe, marca, classe);
+    linha.addEventListener('click', () => abrirDetalhe(e.execucaoId, e.modeloNome, 'tela-historico'));
+    alvo.appendChild(linha);
+  });
+}
+
+async function abrirDetalhe(execucaoId, titulo, voltarPara) {
+  estado.telaAnteriorDetalhe = voltarPara || 'tela-painel';
   if (!navigator.onLine) return mostrarToast('Ver o registro precisa de internet.', 'falha');
   if (!(await renovarToken())) return mostrarToast('Sessão expirada. Entre novamente.', 'falha');
 
@@ -1956,7 +2085,92 @@ function renderizarDetalhe(dados) {
     areaJustificativa.appendChild(texto);
   }
 
+  renderizarEdicoes(e, dados.edicoes || []);
+
+  // O botão só aparece quando o servidor confirma a permissão — quem decide é ele.
+  const botaoEditar = document.getElementById('btn-editar-registro');
+  botaoEditar.classList.toggle('oculto', !dados.podeEditar);
+  botaoEditar.onclick = () => iniciarCorrecao(e.execucaoId, e.modeloNome);
+
   renderizarRespostasDetalhe(dados.respostas);
+}
+
+/** Tarja de "editado" com o que mudou — o registro continua concluído. */
+function renderizarEdicoes(execucao, edicoes) {
+  const area = document.getElementById('detalhe-edicoes');
+  area.innerHTML = '';
+  area.classList.toggle('oculto', !execucao.totalEdicoes);
+  if (!execucao.totalEdicoes) return;
+
+  const titulo = document.createElement('strong');
+  titulo.textContent = 'Corrigido ' + execucao.totalEdicoes +
+    (execucao.totalEdicoes > 1 ? ' vezes' : ' vez');
+  area.appendChild(titulo);
+
+  const quem = document.createElement('p');
+  quem.textContent = 'Última correção por ' + execucao.editadoPor +
+    (execucao.editadoEm ? ' em ' + formatarData(new Date(execucao.editadoEm)) : '');
+  area.appendChild(quem);
+
+  edicoes.forEach(edicao => {
+    const linha = document.createElement('div');
+    linha.className = 'alteracao';
+
+    const pergunta = document.createElement('strong');
+    pergunta.textContent = edicao.pergunta;
+    linha.appendChild(pergunta);
+
+    if (edicao.valorAnterior !== edicao.valorNovo) {
+      linha.appendChild(linhaAlteracao('Valor',
+        edicao.valorAnterior || '(em branco)', edicao.valorNovo || '(em branco)'));
+    }
+    if (edicao.acaoAnterior !== edicao.acaoNova) {
+      linha.appendChild(linhaAlteracao('Ação corretiva',
+        edicao.acaoAnterior || '(em branco)', edicao.acaoNova || '(em branco)'));
+    }
+
+    const assinatura = document.createElement('small');
+    assinatura.textContent = edicao.editadoPor +
+      (edicao.editadoEm ? ' · ' + formatarData(new Date(edicao.editadoEm)) : '');
+    linha.appendChild(assinatura);
+
+    area.appendChild(linha);
+  });
+}
+
+function linhaAlteracao(rotulo, de, para) {
+  const linha = document.createElement('p');
+  linha.className = 'de-para';
+  const antes = document.createElement('span');
+  antes.className = 'antes';
+  antes.textContent = de;
+  const depois = document.createElement('span');
+  depois.className = 'depois';
+  depois.textContent = para;
+  linha.append(rotulo + ': ', antes, ' → ', depois);
+  return linha;
+}
+
+/** Abre um registro concluído no modo correção. */
+async function iniciarCorrecao(execucaoId, titulo) {
+  if (!navigator.onLine) return mostrarToast('Corrigir precisa de internet.', 'falha');
+  if (!(await renovarToken())) return mostrarToast('Sessão expirada. Entre novamente.', 'falha');
+
+  try {
+    const retorno = await chamarApi('abrirEdicao', {
+      idToken: estado.token.valor, execucaoId: execucaoId
+    });
+    const modelo = estado.modelos.find(m => m.modeloId === retorno.execucao.modeloId);
+    if (!modelo) throw new Error('Check-list não está mais disponível para você.');
+
+    iniciarExecucao(modelo, retorno.execucao.turno, retorno.execucao);
+    estado.execucaoAtual.modoCorrecao = true;
+    document.getElementById('execucao-sub').textContent =
+      retorno.execucao.turno + ' · corrigindo registro';
+    atualizarAcoes();
+  } catch (erro) {
+    mostrarToast(erro.message, 'falha');
+  }
 }
 
 function linhaFicha(alvo, rotulo, valor) {
@@ -2155,11 +2369,14 @@ function renderizarDashboard(resumo) {
   if (!resumo.operadores.length) {
     operadores.innerHTML = '<p class="vazio">Sem registros no período.</p>';
   }
+  adm.diasDashboard = resumo.dias;
   resumo.operadores.forEach(o => {
-    operadores.appendChild(criarRegistro(
+    const linha = criarRegistro(
       o.nome,
       o.execucoes + ' check-list(s) · ' + o.naoConformidades + ' não conformidade(s)',
-      String(o.execucoes), 'ativa'));
+      'Ver histórico', 'ativa');
+    linha.addEventListener('click', () => abrirHistorico(o));
+    operadores.appendChild(linha);
   });
 }
 
@@ -2419,7 +2636,10 @@ async function iniciar() {
   document.getElementById('btn-painel').addEventListener('click', abrirPainel);
   document.getElementById('btn-painel-voltar').addEventListener('click', () => irPara('tela-inicio'));
   document.getElementById('btn-painel-atualizar').addEventListener('click', abrirPainel);
-  document.getElementById('btn-detalhe-voltar').addEventListener('click', () => irPara('tela-painel'));
+  document.getElementById('btn-detalhe-voltar').addEventListener('click',
+    () => irPara(estado.telaAnteriorDetalhe || 'tela-painel'));
+  document.getElementById('btn-historico-voltar').addEventListener('click',
+    () => irPara('tela-dashboard'));
 
   document.getElementById('btn-dashboard').addEventListener('click', () => abrirDashboard(30));
   document.getElementById('btn-dash-voltar').addEventListener('click', () => irPara('tela-inicio'));

@@ -426,6 +426,18 @@ select.campo { appearance: none; background-image: none; }
 }
 .lupa img { max-width: 100%; max-height: 100%; border-radius: 8px; }
 
+/* ---------- histórico de correções ---------- */
+.alteracao {
+  background: var(--cartao); border-radius: 8px;
+  padding: 10px 12px; margin-top: 10px; font-size: 14px;
+}
+.alteracao > strong { display: block; margin-bottom: 4px; }
+.alteracao small { color: var(--texto-fraco); font-size: 12px; display: block; margin-top: 6px; }
+
+.de-para { margin: 2px 0; color: var(--texto-fraco); }
+.de-para .antes { text-decoration: line-through; color: var(--vermelho); }
+.de-para .depois { font-weight: 700; color: var(--verde); }
+
 /* ---------- encerrar como incompleto ---------- */
 .atencao-caixa {
   background: #fdf1dc; border: 1px solid var(--ambar);
