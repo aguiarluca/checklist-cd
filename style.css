@@ -363,6 +363,69 @@ select.campo { appearance: none; background-image: none; }
 }
 .linha-horario .campo { flex: 1; }
 
+/* ---------- bloco: uma pergunta com vários campos ---------- */
+.bloco {
+  border: 2px solid var(--azul-claro); border-radius: var(--raio);
+  padding: 12px; margin-bottom: 16px; background: var(--fundo);
+}
+.bloco-titulo {
+  margin: 0 0 12px; font-size: 17px; font-weight: 700; color: var(--azul-claro);
+}
+.bloco .item:last-child { margin-bottom: 0; }
+
+@media (prefers-color-scheme: dark) {
+  .bloco { background: rgba(31, 78, 140, .12); }
+}
+
+/* ---------- detalhe do registro ---------- */
+.ficha {
+  background: var(--cartao); border: 1px solid var(--borda);
+  border-radius: var(--raio); overflow: hidden; margin-bottom: 8px;
+}
+.linha-ficha {
+  display: flex; justify-content: space-between; gap: 16px;
+  padding: 12px 14px; border-top: 1px solid var(--borda); font-size: 15px;
+}
+.linha-ficha:first-child { border-top: 0; }
+.linha-ficha span { color: var(--texto-fraco); }
+.linha-ficha strong { text-align: right; min-width: 0; }
+
+.item.sem-resposta { border-style: dashed; opacity: .75; }
+
+.valor-registrado {
+  font-size: 26px; font-weight: 700; margin: 0 0 4px;
+  font-variant-numeric: tabular-nums;
+}
+.item.sem-resposta .valor-registrado {
+  font-size: 17px; font-weight: 400; color: var(--texto-fraco);
+}
+
+.acao-registrada {
+  margin: 12px 0 0; padding: 10px 12px; font-size: 15px;
+  background: var(--fundo); border-radius: 8px;
+}
+
+.foto-registrada {
+  display: block; margin-top: 12px; width: 100%; max-width: 320px;
+  border-radius: 10px; border: 1px solid var(--borda); cursor: zoom-in;
+}
+
+.link-foto {
+  display: inline-block; margin-top: 12px;
+  color: var(--azul-claro); font-weight: 600; min-height: 44px; line-height: 44px;
+}
+
+.item .marca { display: inline-block; margin-top: 8px; }
+
+/* Foto em tela cheia para conferir o display de perto. */
+.lupa {
+  position: fixed; inset: 0; z-index: 60;
+  background: rgba(0,0,0,.92);
+  display: flex; align-items: center; justify-content: center;
+  padding: 12px; cursor: zoom-out;
+}
+.lupa img { max-width: 100%; max-height: 100%; border-radius: 8px; }
+
 /* ---------- encerrar como incompleto ---------- */
 .atencao-caixa {
   background: #fdf1dc; border: 1px solid var(--ambar);

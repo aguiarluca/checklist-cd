@@ -366,12 +366,11 @@ function iniciarExecucao(modelo, turno, rascunho) {
   document.getElementById('assinatura-nome').value = estado.usuario.nome;
   document.getElementById('assinatura-ok').checked = false;
   document.getElementById('execucao-erro').classList.add('oculto');
-  document.getElementById('bloco-incompleto').classList.add('oculto');
   document.getElementById('justificativa').value = '';
-  document.getElementById('btn-salvar-aberto').classList.toggle('oculto', !modelo.permiteRascunho);
 
   renderizarItens(modelo);
   if (rascunho) aplicarRespostasSalvas(modelo, rascunho.respostas || []);
+  atualizarAcoes();
 
   irPara('tela-execucao');
 }
@@ -450,17 +449,49 @@ function renderizarItens(modelo) {
   });
 
   locais.forEach(local => {
-    const grupo = document.createElement('section');
-    grupo.className = 'grupo-local';
+    const secao = document.createElement('section');
+    secao.className = 'grupo-local';
     const titulo = document.createElement('h2');
     titulo.textContent = local || 'Geral';
-    grupo.appendChild(titulo);
+    secao.appendChild(titulo);
 
-    modelo.itens
-      .filter(item => item.local === local)
-      .forEach(item => grupo.appendChild(montarItem(item)));
+    const doLocal = modelo.itens.filter(item => item.local === local);
+    montarPorBloco(doLocal, secao, montarItem);
+    alvo.appendChild(secao);
+  });
+}
 
-    alvo.appendChild(grupo);
+/**
+ * Campos que compartilham o mesmo `grupo` viram um bloco único na tela — é o
+ * que permite uma pergunta ("Veículo Seco 01") ter vários campos de resposta.
+ * Cada campo continua sendo uma linha própria na planilha; o bloco é só a
+ * apresentação, e por isso conformidade, indicadores e histórico não mudam.
+ */
+function montarPorBloco(itens, destino, montarCampo) {
+  let blocoAtual = null;
+  let nomeBloco = null;
+
+  itens.forEach(item => {
+    const grupo = String(item.grupo || '').trim();
+
+    if (!grupo) {
+      blocoAtual = null;
+      nomeBloco = null;
+      destino.appendChild(montarCampo(item));
+      return;
+    }
+
+    if (grupo !== nomeBloco) {
+      nomeBloco = grupo;
+      blocoAtual = document.createElement('div');
+      blocoAtual.className = 'bloco';
+      const titulo = document.createElement('h3');
+      titulo.className = 'bloco-titulo';
+      titulo.textContent = grupo;
+      blocoAtual.appendChild(titulo);
+      destino.appendChild(blocoAtual);
+    }
+    blocoAtual.appendChild(montarCampo(item));
   });
 }
 
@@ -685,6 +716,7 @@ function montarCampoTexto(item) {
   campo.placeholder = 'Digite aqui';
   campo.addEventListener('input', () => {
     estado.execucaoAtual.respostas[item.itemId].valor = campo.value;
+    atualizarAcoes();
   });
   return campo;
 }
@@ -721,6 +753,7 @@ function montarCampoFoto(item) {
       miniatura.src = 'data:' + foto.mimeType + ';base64,' + foto.dadosBase64;
       miniatura.classList.remove('oculto');
       botao.textContent = 'Refazer foto';
+      atualizarAcoes();
     } catch (erro) {
       mostrarToast(erro.message, 'falha');
       botao.textContent = 'Tirar foto';
@@ -762,6 +795,39 @@ function atualizarConformidade(item, caixa) {
   const conforme = resposta.valor === '' || avaliarConformidadeLocal(item, resposta.valor);
   caixa.classList.toggle('nao-conforme', !conforme);
   caixa.querySelector('.bloco-acao').classList.toggle('oculto', conforme);
+  atualizarAcoes();
+}
+
+/**
+ * Em check-list que aceita ficar em aberto, "Concluir" só aparece quando não
+ * falta nada. Enquanto houver pergunta em branco, o caminho é salvar em aberto
+ * ou encerrar como incompleto — oferecer "Concluir" ali só produziria erro.
+ */
+function atualizarAcoes() {
+  const execucao = estado.execucaoAtual;
+  if (!execucao) return;
+
+  const faltando = execucao.modelo.itens.filter(item => {
+    const r = execucao.respostas[item.itemId];
+    const respondida = String(r.valor).trim() !== '';
+    const fotoOk = !exigeFoto(item) || r.foto || r.fotoUrl;
+    return item.obrigatorio ? (!respondida || !fotoOk) : (exigeFoto(item) && !fotoOk);
+  }).length;
+
+  const permite = execucao.modelo.permiteRascunho;
+  const botaoConcluir = document.getElementById('btn-concluir');
+  const botaoAberto = document.getElementById('btn-salvar-aberto');
+  const caixaIncompleto = document.getElementById('bloco-incompleto');
+
+  botaoAberto.classList.toggle('oculto', !permite);
+  botaoConcluir.classList.toggle('oculto', permite && faltando > 0);
+  caixaIncompleto.classList.toggle('oculto', !(permite && faltando > 0));
+
+  // Com tudo respondido, concluir é a ação principal; salvar em aberto vira secundário.
+  botaoAberto.classList.toggle('grande', permite && faltando > 0);
+  botaoAberto.textContent = faltando > 0
+    ? 'Salvar e continuar depois (' + faltando + ' a responder)'
+    : 'Salvar e continuar depois';
 }
 
 /**
@@ -826,12 +892,6 @@ async function concluirExecucao(incompleta) {
         ? document.querySelector('[data-item-id="' + problema.itemId + '"]')
         : null;
       if (alvo) alvo.scrollIntoView({ behavior: 'smooth', block: 'center' });
-
-      // Só oferece o encerramento parcial se o que falta for resposta em branco —
-      // ação corretiva e foto de item reprovado continuam obrigatórias.
-      if (execucao.modelo.permiteRascunho && problema.emBranco) {
-        document.getElementById('bloco-incompleto').classList.remove('oculto');
-      }
       return;
     }
   } else {
@@ -1457,7 +1517,8 @@ function renderizarItensAdm() {
     const titulo = document.createElement('strong');
     titulo.textContent = item.pergunta || '(sem pergunta)';
     const detalhe = document.createElement('small');
-    detalhe.textContent = (item.local || 'Geral') + ' · ' + rotuloTipo(item.tipo) +
+    detalhe.textContent = [item.grupo, item.local || 'Geral'].filter(Boolean).join(' › ') +
+      ' · ' + rotuloTipo(item.tipo) +
       (item.obrigatorio ? ' · obrigatória' : '') + (exigeFoto(item) ? ' · com foto' : '');
     texto.appendChild(titulo);
     texto.appendChild(detalhe);
@@ -1556,14 +1617,16 @@ function abrirItem(item, indice) {
   adm.indiceItem = indice;
   adm.itemEdicao = item
     ? JSON.parse(JSON.stringify(item))
-    : { itemId: '', local: 'Geral', pergunta: '', tipo: 'NUMERO', unidade: '',
+    : { itemId: '', local: adm.ultimoLocal || 'Geral', grupo: adm.ultimoGrupo || '',
+        pergunta: '', tipo: 'NUMERO', unidade: '',
         minimo: null, maximo: null, respostaEsperada: '', opcoes: [],
         obrigatorio: true, exigeFoto: false, ativo: true };
 
   const i = adm.itemEdicao;
-  document.getElementById('item-titulo').textContent = item ? 'Editar pergunta' : 'Nova pergunta';
+  document.getElementById('item-titulo').textContent = item ? 'Editar campo' : 'Novo campo';
   document.getElementById('item-pergunta').value = i.pergunta;
   document.getElementById('item-local').value = i.local;
+  document.getElementById('item-grupo').value = i.grupo || '';
   document.getElementById('item-tipo').value = i.tipo;
   document.getElementById('item-unidade').value = i.unidade;
   document.getElementById('item-minimo').value = i.minimo === null ? '' : i.minimo;
@@ -1579,14 +1642,9 @@ function abrirItem(item, indice) {
     ['FUTURA', 'PASSADA'].includes(i.respostaEsperada) ? i.respostaEsperada : '';
   document.getElementById('item-erro').classList.add('oculto');
 
-  // Sugere as áreas já usadas neste check-list.
-  const lista = document.getElementById('locais-usados');
-  lista.innerHTML = '';
-  [...new Set(adm.modeloEdicao.itens.map(x => x.local).filter(Boolean))].forEach(local => {
-    const opcao = document.createElement('option');
-    opcao.value = local;
-    lista.appendChild(opcao);
-  });
+  // Sugere as áreas e os blocos já usados neste check-list.
+  preencherSugestoes('locais-usados', adm.modeloEdicao.itens.map(x => x.local));
+  preencherSugestoes('blocos-usados', adm.modeloEdicao.itens.map(x => x.grupo));
 
   alternarCamposDoTipo();
   irPara('tela-item');
@@ -1606,12 +1664,28 @@ function alternarCamposDoTipo() {
   mostrar('rotulo-exige-foto', tipo !== 'FOTO');
 }
 
-function salvarItem() {
+function preencherSugestoes(idLista, valores) {
+  const lista = document.getElementById(idLista);
+  lista.innerHTML = '';
+  [...new Set(valores.filter(Boolean))].forEach(valor => {
+    const opcao = document.createElement('option');
+    opcao.value = valor;
+    lista.appendChild(opcao);
+  });
+}
+
+/**
+ * `continuarNoBloco` salva o campo e reabre o editor já no mesmo bloco e área —
+ * é o caminho para montar "Veículo Seco 01" com lista + texto + foto sem ter
+ * que redigitar o bloco a cada campo.
+ */
+function salvarItem(continuarNoBloco) {
   const erro = document.getElementById('item-erro');
   const i = adm.itemEdicao;
 
   i.pergunta = document.getElementById('item-pergunta').value.trim();
   i.local = document.getElementById('item-local').value.trim() || 'Geral';
+  i.grupo = document.getElementById('item-grupo').value.trim();
   i.tipo = document.getElementById('item-tipo').value;
   i.obrigatorio = document.getElementById('item-obrigatorio').checked;
   i.exigeFoto = i.tipo === 'FOTO' ? true : document.getElementById('item-exige-foto').checked;
@@ -1648,11 +1722,29 @@ function salvarItem() {
     i.respostaEsperada = document.getElementById('item-regra-data').value;
   }
 
-  if (adm.indiceItem >= 0) adm.modeloEdicao.itens[adm.indiceItem] = i;
-  else adm.modeloEdicao.itens.push(i);
+  if (adm.indiceItem >= 0) {
+    adm.modeloEdicao.itens[adm.indiceItem] = i;
+  } else if (i.grupo) {
+    // Campo novo de um bloco entra logo depois do último campo daquele bloco,
+    // e não no fim da lista — senão o bloco ficaria partido em dois na tela.
+    const ultimo = adm.modeloEdicao.itens.map(x => x.grupo).lastIndexOf(i.grupo);
+    if (ultimo >= 0) adm.modeloEdicao.itens.splice(ultimo + 1, 0, i);
+    else adm.modeloEdicao.itens.push(i);
+  } else {
+    adm.modeloEdicao.itens.push(i);
+  }
+
+  adm.ultimoLocal = i.local;
+  adm.ultimoGrupo = i.grupo;
 
   renderizarItensAdm();
-  irPara('tela-modelo');
+
+  if (continuarNoBloco) {
+    abrirItem(null, -1);
+    mostrarToast('Campo salvo — inclua o próximo', 'sucesso');
+  } else {
+    irPara('tela-modelo');
+  }
 }
 
 /* ---------- peças reutilizadas ---------- */
@@ -1806,11 +1898,204 @@ function renderizarPainelDoDia(feitasHoje) {
       classe = linha.atrasada ? 'erro' : 'pendente';
     }
 
-    alvo.appendChild(criarRegistro(
+    const registro = linha.emAberto || linha.feita;
+    const elemento = criarRegistro(
       linha.modelo + ' · ' + linha.turno,
       [linha.setor, detalhe].filter(Boolean).join(' · '),
-      marca, classe));
+      marca, classe);
+
+    if (registro) {
+      elemento.addEventListener('click',
+        () => abrirDetalhe(registro.execucaoId, linha.modelo));
+    } else {
+      // Pendente não tem o que mostrar — não finge ser clicável.
+      elemento.classList.remove('clicavel');
+    }
+    alvo.appendChild(elemento);
   });
+}
+
+/* ==========================================================================
+   8c-b. DETALHE DE UM REGISTRO
+   ========================================================================== */
+
+async function abrirDetalhe(execucaoId, titulo) {
+  if (!navigator.onLine) return mostrarToast('Ver o registro precisa de internet.', 'falha');
+  if (!(await renovarToken())) return mostrarToast('Sessão expirada. Entre novamente.', 'falha');
+
+  document.getElementById('detalhe-titulo').textContent = titulo || 'Registro';
+  document.getElementById('detalhe-sub').textContent = '';
+  document.getElementById('detalhe-carregando').classList.remove('oculto');
+  document.getElementById('detalhe-carregando').textContent = 'Carregando...';
+  document.getElementById('detalhe-conteudo').classList.add('oculto');
+  irPara('tela-detalhe');
+
+  try {
+    const retorno = await chamarApi('detalhe', {
+      idToken: estado.token.valor, execucaoId: execucaoId
+    });
+    renderizarDetalhe(retorno);
+    document.getElementById('detalhe-carregando').classList.add('oculto');
+    document.getElementById('detalhe-conteudo').classList.remove('oculto');
+  } catch (erro) {
+    document.getElementById('detalhe-carregando').textContent = erro.message;
+  }
+}
+
+function renderizarDetalhe(dados) {
+  const e = dados.execucao;
+  const respondidas = dados.respostas.filter(r => r.conforme !== 'NÃO RESPONDIDA').length;
+
+  document.getElementById('detalhe-titulo').textContent = e.modeloNome;
+  document.getElementById('detalhe-sub').textContent =
+    e.turno + ' · ' + e.data.split('-').reverse().join('/');
+
+  const numeros = document.getElementById('detalhe-numeros');
+  numeros.innerHTML = '';
+  numeros.append(
+    cartaoNumero('Situação', rotuloStatus(e.status),
+      e.status === 'CONCLUIDA' ? 'bom' : e.status === 'INCOMPLETA' ? 'atencao' : ''),
+    cartaoNumero('Respondidas', respondidas + ' de ' + dados.respostas.length),
+    cartaoNumero('Não conformes', String(e.naoConformidades), e.naoConformidades ? 'ruim' : 'bom'),
+    cartaoNumero('Duração', e.duracaoMin === null ? '—' : e.duracaoMin + ' min')
+  );
+
+  const ficha = document.getElementById('detalhe-ficha');
+  ficha.innerHTML = '';
+  linhaFicha(ficha, 'Realizado por', e.nome);
+  if (e.inicioEm) linhaFicha(ficha, 'Início', formatarData(new Date(e.inicioEm)));
+  if (e.fimEm) linhaFicha(ficha, 'Conclusão', formatarData(new Date(e.fimEm)));
+  if (e.assinaturaNome) linhaFicha(ficha, 'Assinado por', e.assinaturaNome);
+
+  const areaJustificativa = document.getElementById('detalhe-justificativa');
+  areaJustificativa.classList.toggle('oculto', !e.justificativa);
+  if (e.justificativa) {
+    areaJustificativa.innerHTML = '<strong>Encerrado como incompleto</strong>';
+    const texto = document.createElement('p');
+    texto.textContent = e.justificativa;
+    areaJustificativa.appendChild(texto);
+  }
+
+  renderizarRespostasDetalhe(dados.respostas);
+}
+
+function linhaFicha(alvo, rotulo, valor) {
+  const linha = document.createElement('div');
+  linha.className = 'linha-ficha';
+  const chave = document.createElement('span');
+  chave.textContent = rotulo;
+  const conteudo = document.createElement('strong');
+  conteudo.textContent = valor;
+  linha.append(chave, conteudo);
+  alvo.appendChild(linha);
+}
+
+function renderizarRespostasDetalhe(respostas) {
+  const alvo = document.getElementById('detalhe-respostas');
+  alvo.innerHTML = '';
+
+  if (!respostas.length) {
+    alvo.innerHTML = '<p class="vazio">Nenhuma resposta registrada.</p>';
+    return;
+  }
+
+  const locais = [];
+  respostas.forEach(r => { if (!locais.includes(r.local)) locais.push(r.local); });
+
+  locais.forEach(local => {
+    const grupo = document.createElement('section');
+    grupo.className = 'grupo-local';
+    const titulo = document.createElement('h2');
+    titulo.textContent = local || 'Geral';
+    grupo.appendChild(titulo);
+
+    montarPorBloco(respostas.filter(r => r.local === local), grupo, montarRespostaDetalhe);
+    alvo.appendChild(grupo);
+  });
+}
+
+function montarRespostaDetalhe(r) {
+  const caixa = document.createElement('article');
+  const vazia = r.conforme === 'NÃO RESPONDIDA';
+  caixa.className = 'item' + (r.conforme === 'NÃO CONFORME' ? ' nao-conforme' : '') +
+                    (vazia ? ' sem-resposta' : '');
+
+  const pergunta = document.createElement('p');
+  pergunta.className = 'item-pergunta';
+  pergunta.textContent = r.pergunta;
+  caixa.appendChild(pergunta);
+
+  const valor = document.createElement('p');
+  valor.className = 'valor-registrado';
+  valor.textContent = vazia ? 'Não respondida'
+    : r.valor + (r.unidade ? ' ' + r.unidade : '');
+  caixa.appendChild(valor);
+
+  const faixa = descreverFaixaRegistrada(r);
+  if (faixa) {
+    const info = document.createElement('span');
+    info.className = 'item-faixa';
+    info.textContent = faixa;
+    caixa.appendChild(info);
+  }
+
+  if (!vazia) {
+    const marca = document.createElement('span');
+    marca.className = 'marca ' + (r.conforme === 'NÃO CONFORME' ? 'erro' : 'enviada');
+    marca.textContent = r.conforme;
+    caixa.appendChild(marca);
+  }
+
+  if (r.acaoCorretiva) {
+    const acao = document.createElement('p');
+    acao.className = 'acao-registrada';
+    acao.textContent = 'Ação corretiva: ' + r.acaoCorretiva;
+    caixa.appendChild(acao);
+  }
+
+  if (r.foto) {
+    const imagem = document.createElement('img');
+    imagem.className = 'foto-registrada';
+    imagem.src = 'data:' + r.foto.mime + ';base64,' + r.foto.base64;
+    imagem.alt = 'Foto de ' + r.pergunta;
+    imagem.loading = 'lazy';
+    // Toque abre em tamanho cheio, para conferir o display do termômetro.
+    imagem.addEventListener('click', () => abrirFotoAmpliada(imagem.src));
+    caixa.appendChild(imagem);
+  } else if (r.fotoUrl) {
+    const link = document.createElement('a');
+    link.className = 'link-foto';
+    link.href = r.fotoUrl;
+    link.target = '_blank';
+    link.rel = 'noopener';
+    link.textContent = 'Abrir foto no Drive';
+    caixa.appendChild(link);
+  }
+
+  return caixa;
+}
+
+function descreverFaixaRegistrada(r) {
+  if (r.minimo !== null && r.maximo !== null) {
+    return 'Faixa na época: ' + r.minimo + ' a ' + r.maximo + (r.unidade ? ' ' + r.unidade : '');
+  }
+  if (r.minimo !== null) return 'Mínimo na época: ' + r.minimo;
+  if (r.maximo !== null) return 'Máximo na época: ' + r.maximo;
+  return '';
+}
+
+function abrirFotoAmpliada(src) {
+  const lupa = document.createElement('div');
+  lupa.className = 'lupa';
+  const imagem = document.createElement('img');
+  imagem.src = src;
+  lupa.appendChild(imagem);
+  lupa.addEventListener('click', () => lupa.remove());
+  document.body.appendChild(lupa);
+}
+
+function rotuloStatus(status) {
+  return { CONCLUIDA: 'Concluído', INCOMPLETA: 'Incompleto', EM_ANDAMENTO: 'Em aberto' }[status] || status;
 }
 
 /* ==========================================================================
@@ -2124,7 +2409,8 @@ async function iniciar() {
   document.getElementById('btn-nova-pergunta').addEventListener('click', () => abrirItem(null, -1));
 
   document.getElementById('btn-item-voltar').addEventListener('click', () => irPara('tela-modelo'));
-  document.getElementById('btn-salvar-item').addEventListener('click', salvarItem);
+  document.getElementById('btn-salvar-item').addEventListener('click', () => salvarItem(false));
+  document.getElementById('btn-salvar-e-outro').addEventListener('click', () => salvarItem(true));
   document.getElementById('item-tipo').addEventListener('change', alternarCamposDoTipo);
   document.getElementById('modelo-turnos').addEventListener('input', renderizarHorarios);
 
@@ -2132,6 +2418,7 @@ async function iniciar() {
   document.getElementById('btn-painel').addEventListener('click', abrirPainel);
   document.getElementById('btn-painel-voltar').addEventListener('click', () => irPara('tela-inicio'));
   document.getElementById('btn-painel-atualizar').addEventListener('click', abrirPainel);
+  document.getElementById('btn-detalhe-voltar').addEventListener('click', () => irPara('tela-painel'));
 
   document.getElementById('btn-dashboard').addEventListener('click', () => abrirDashboard(30));
   document.getElementById('btn-dash-voltar').addEventListener('click', () => irPara('tela-inicio'));

@@ -24,7 +24,7 @@
       <div id="botao-google" class="botao-google"></div>
       <p id="login-aviso" class="aviso oculto"></p>
 
-      <p class="rodape-versao"><span id="rotulo-versao">vs.2026.08.21.0010</span></p>
+      <p class="rodape-versao"><span id="rotulo-versao">vs.2026.08.21.0012</span></p>
     </div>
   </section>
 
@@ -247,7 +247,14 @@
     </header>
 
     <main class="conteudo">
-      <label class="rotulo" for="item-pergunta">Pergunta</label>
+      <label class="rotulo" for="item-grupo">Bloco (opcional)</label>
+      <input id="item-grupo" class="campo" type="text" list="blocos-usados"
+             placeholder="Ex.: Veículo Seco 01">
+      <datalist id="blocos-usados"></datalist>
+      <p class="dica">Campos com o mesmo bloco aparecem juntos, como uma pergunta só com
+        vários campos de resposta. Deixe em branco para uma pergunta avulsa.</p>
+
+      <label class="rotulo" for="item-pergunta">Rótulo do campo</label>
       <textarea id="item-pergunta" class="campo" rows="2" placeholder="Ex.: Temperatura no display"></textarea>
 
       <label class="rotulo" for="item-local">Área</label>
@@ -320,7 +327,10 @@
       </label>
 
       <p id="item-erro" class="erro oculto"></p>
-      <button id="btn-salvar-item" class="botao grande">Salvar pergunta</button>
+      <button id="btn-salvar-item" class="botao grande">Salvar campo</button>
+      <button id="btn-salvar-e-outro" class="botao secundario">
+        Salvar e incluir outro campo neste bloco
+      </button>
     </main>
   </section>
 
@@ -378,6 +388,29 @@
 
         <h2 class="secao-titulo">Por operador</h2>
         <div id="dash-operadores" class="lista-registros"></div>
+      </div>
+    </main>
+  </section>
+
+  <!-- ===================== DETALHE DO REGISTRO ===================== -->
+  <section id="tela-detalhe" class="tela">
+    <header class="cabecalho">
+      <button id="btn-detalhe-voltar" class="botao-icone" aria-label="Voltar">Voltar</button>
+      <div>
+        <span id="detalhe-titulo" class="cabecalho-titulo">Registro</span>
+        <span id="detalhe-sub" class="cabecalho-sub"></span>
+      </div>
+      <span></span>
+    </header>
+
+    <main class="conteudo">
+      <div id="detalhe-carregando" class="vazio">Carregando...</div>
+      <div id="detalhe-conteudo" class="oculto">
+        <div id="detalhe-numeros" class="cartoes-numeros"></div>
+        <div id="detalhe-ficha" class="ficha"></div>
+        <div id="detalhe-justificativa" class="atencao-caixa oculto"></div>
+        <h2 class="secao-titulo">Respostas</h2>
+        <div id="detalhe-respostas"></div>
       </div>
     </main>
   </section>

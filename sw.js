@@ -4,7 +4,7 @@
    Ao subir uma versão nova, altere CACHE_VERSAO para invalidar o cache antigo.
    ========================================================================== */
 
-const CACHE_VERSAO = 'checklist-cd-vs.2026.08.21.0010';
+const CACHE_VERSAO = 'checklist-cd-vs.2026.08.21.0012';
 
 const ARQUIVOS_BASE = [
   './',
